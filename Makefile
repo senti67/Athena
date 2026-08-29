@@ -1,0 +1,46 @@
+.PHONY: help install test lint run-api run-web docker-up docker-down seed simulate backtest
+
+help:
+	@echo "ATHENA Institutional Quantitative Platform Commands:"
+	@echo "  make install      Install all python and node dependencies"
+	@echo "  make test         Run all unit, integration, and failure tests"
+	@echo "  make lint         Run ruff and black linter checks"
+	@echo "  make run-api      Run FastAPI backend locally"
+	@echo "  make run-web      Run Next.js web dashboard locally"
+	@echo "  make docker-up    Start all containerized services"
+	@echo "  make docker-down  Stop all containerized services"
+	@echo "  make seed         Seed database with assets and historical market data"
+	@echo "  make simulate     Run end-to-end multi-agent trading simulation"
+	@echo "  make backtest     Run event-driven backtesting engine"
+
+install:
+	pip install -e .
+	cd apps/web && npm install
+
+test:
+	pytest tests/ -v
+
+lint:
+	ruff check .
+	black --check .
+
+run-api:
+	uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+run-web:
+	cd apps/web && npm run dev
+
+docker-up:
+	docker-compose up -d
+
+docker-down:
+	docker-compose down
+
+seed:
+	python scripts/seed_data.py
+
+simulate:
+	python scripts/run_simulation.py
+
+backtest:
+	python scripts/run_backtest.py
