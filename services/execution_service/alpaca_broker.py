@@ -191,10 +191,26 @@ class AlpacaBrokerAdapter:
                 fills=[fill],
             )
 
+        # Map Indian symbols to US ADRs/ETFs for Alpaca paper execution
+        symbol_map = {
+            "ICICIBANK": "IBN",
+            "INFY": "INFY",
+            "HDFCBANK": "HDB",
+            "NIFTY50": "INDY",
+            "RELIANCE": "INDA",
+            "BHARTIARTL": "INDA",
+            "TATAMOTORS": "INDA",
+            "LT": "INDA",
+            "TCS": "INDA",
+            "ITC": "INDA",
+            "SBIN": "INDA",
+        }
+        alpaca_symbol = symbol_map.get(request.symbol.upper(), request.symbol.upper())
+
         # Real Alpaca Paper API submission payload
         payload = {
-            "symbol": request.symbol.upper(),
-            "qty": str(request.quantity),
+            "symbol": alpaca_symbol,
+            "qty": str(max(1, int(request.quantity))),
             "side": request.side.value.lower(),
             "type": request.order_type.value.lower(),
             "time_in_force": request.time_in_force.lower(),
