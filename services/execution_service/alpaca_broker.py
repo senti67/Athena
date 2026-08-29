@@ -215,13 +215,14 @@ class AlpacaBrokerAdapter:
                     status_map = {
                         "filled": OrderStatus.FILLED,
                         "partially_filled": OrderStatus.PARTIALLY_FILLED,
-                        "new": OrderStatus.ACCEPTED,
-                        "accepted": OrderStatus.ACCEPTED,
-                        "pending_new": OrderStatus.PENDING_SUBMIT,
-                        "canceled": OrderStatus.CANCELLED,
+                        "new": OrderStatus.SUBMITTED,
+                        "accepted": OrderStatus.SUBMITTED,
+                        "pending_new": OrderStatus.SUBMITTED,
+                        "canceled": OrderStatus.CANCELED,
                         "rejected": OrderStatus.REJECTED,
+                        "expired": OrderStatus.EXPIRED,
                     }
-                    order_status = status_map.get(data.get("status"), OrderStatus.ACCEPTED)
+                    order_status = status_map.get(data.get("status"), OrderStatus.SUBMITTED)
                     fill_px = float(data.get("filled_avg_price") or data.get("limit_price") or 0.0)
                     filled_qty = float(data.get("filled_qty") or 0.0)
                     qty = float(data.get("qty", request.quantity))
