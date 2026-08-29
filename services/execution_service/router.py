@@ -42,6 +42,11 @@ class ExecutionRouter:
         risk_check: RiskCheckResult,
         mode: ExecutionMode = ExecutionMode.PAPER,
     ) -> Optional[OrderResponse]:
+        # 0. Master Emergency Kill Switch & Analysis-Only Check
+        if settings.CIRCUIT_BREAKER_TRIGGERED or settings.EXECUTION_MODE == "ANALYSIS_ONLY":
+            logger.warning("Execution Router: Master Kill Switch / ANALYSIS_ONLY mode is active. Order blocked.")
+            return None
+
         # 1. Non-bypassable Risk Veto Verification
         if not risk_check.approved:
             logger.warning(
