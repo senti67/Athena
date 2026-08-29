@@ -82,7 +82,7 @@ class LearningService:
         agent_updates: List[AgentWeightUpdate] = []
         for agent_name, cur_weight in self.agent_weights.items():
             # Bayesian update based on supporting votes in winning vs losing trades
-            updated_weight = round(min(0.35, max(0.05, cur_weight * (1.0 + (win_rate - 0.50) * 0.1)), 3)
+            updated_weight = round(min(0.35, max(0.05, cur_weight * (1.0 + (win_rate - 0.50) * 0.1))), 3)
             delta = round(updated_weight - cur_weight, 3)
             agent_updates.append(
                 AgentWeightUpdate(

@@ -1,26 +1,40 @@
 """
 ATHENA Security, Cryptography, and RBAC Engine
+Uses standard library PBKDF2-HMAC-SHA256 for secure password hashing and python-jose for JWTs.
 """
 
+import hashlib
+import hmac
+import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from packages.common.config import settings
 from packages.schemas.auth import TokenPayload, UserRole
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    """Generates a secure PBKDF2-HMAC-SHA256 hash with random salt."""
+    salt = os.urandom(16)
+    pw_bytes = password.encode("utf-8")
+    hash_bytes = hashlib.pbkdf2_hmac("sha256", pw_bytes, salt, 100000)
+    return f"{salt.hex()}:{hash_bytes.hex()}"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plain password against its bcrypt hash."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password: str) -> str:
-    """Generates a secure bcrypt hash for a password."""
-    return pwd_context.hash(password)
+    """Verifies a password against stored PBKDF2 hash using constant-time comparison."""
+    try:
+        parts = hashed_password.split(":")
+        if len(parts) != 2:
+            return False
+        salt = bytes.fromhex(parts[0])
+        stored_hash = bytes.fromhex(parts[1])
+        pw_bytes = plain_password.encode("utf-8")
+        computed_hash = hashlib.pbkdf2_hmac("sha256", pw_bytes, salt, 100000)
+        return hmac.compare_digest(stored_hash, computed_hash)
+    except Exception:
+        return False
 
 
 def create_access_token(
