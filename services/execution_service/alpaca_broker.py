@@ -204,6 +204,11 @@ class AlpacaBrokerAdapter:
             "TCS": "INDA",
             "ITC": "INDA",
             "SBIN": "INDA",
+            "MILKYMIST": "INDA",
+            "HATSUN": "INDA",
+            "DODLA": "INDA",
+            "HERITGFOOD": "INDA",
+            "NESTLEIND": "NSRGY",
         }
         alpaca_symbol = symbol_map.get(request.symbol.upper(), request.symbol.upper())
 
