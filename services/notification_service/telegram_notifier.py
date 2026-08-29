@@ -102,7 +102,7 @@ class TelegramNotifier:
             f"👉 [View Live on Alpaca Dashboard](https://app.alpaca.markets/paper/dashboard/overview)"
         )
 
-        asyncio.create_task(self.send_message(msg))
+        await self.send_message(msg)
 
     async def notify_risk_veto(self, symbol: str, reason: str):
         """Notifies when the Risk Management VETO Layer blocks an order."""
@@ -115,7 +115,7 @@ class TelegramNotifier:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🔒 _Institutional capital preservation rule enforced._"
         )
-        asyncio.create_task(self.send_message(msg))
+        await self.send_message(msg)
 
     async def notify_daily_summary(
         self,
@@ -135,7 +135,7 @@ class TelegramNotifier:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🤖 _Autonomous Hedge Fund Engine Active_"
         )
-        asyncio.create_task(self.send_message(msg))
+        await self.send_message(msg)
 
 
 telegram_notifier = TelegramNotifier()
