@@ -117,6 +117,14 @@ class Settings(BaseSettings):
     PAPER_COMMISSION_PER_SHARE: float = 0.005
     PAPER_LATENCY_MS: int = 50
 
+    # Notifications & Alerts
+    DESKTOP_NOTIFICATIONS_ENABLED: bool = True
+    AUDIO_ALERTS_ENABLED: bool = True
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
+    DISCORD_WEBHOOK_URL: Optional[str] = None
+    SLACK_WEBHOOK_URL: Optional[str] = None
+
     # Observability
     PROMETHEUS_METRICS_ENABLED: bool = True
     OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = "http://localhost:4317"
