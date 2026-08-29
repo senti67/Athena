@@ -88,7 +88,24 @@ class ExecutionRouter:
             )
         )
 
-        # 4. Dispatch to Chosen Broker Adapter (Alpaca Paper / Alpaca Live / Internal)
+        # 4. Enforce Live $200k Alpaca Buying Power Floor Check
+        if side == OrderSide.BUY and (settings.BROKER_PROVIDER == "alpaca" or mode == ExecutionMode.PAPER):
+            acct = await self.alpaca_broker.get_account()
+            live_bp = float(acct.get("buying_power", 400000.0))
+            order_cost = float(risk_check.max_approved_shares) * decision.current_price
+            # Alpaca margin multiplier reservation
+            projected_bp = live_bp - (order_cost * 4.0)
+
+            if live_bp < settings.MIN_BUYING_POWER_RESERVE or projected_bp < settings.MIN_BUYING_POWER_RESERVE:
+                veto_msg = (
+                    f"Mandatory $200,000.00 Buying Power Floor active. "
+                    f"Current Alpaca BP is ${live_bp:,.2f}. Order rejected to protect $200k minimum reserve."
+                )
+                logger.warning(veto_msg)
+                await telegram_notifier.notify_risk_veto(decision.symbol, veto_msg)
+                raise RiskVetoException(veto_msg)
+
+        # 5. Dispatch to Chosen Broker Adapter (Alpaca Paper / Alpaca Live / Internal)
         if settings.BROKER_PROVIDER == "alpaca" or mode == ExecutionMode.PAPER:
             order_response = await self.alpaca_broker.submit_order(order_request)
         elif mode == ExecutionMode.LIVE:
