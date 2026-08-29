@@ -23,6 +23,10 @@ from services.strategy_service.registry import strategy_registry
 async def test_complete_autonomous_trading_pipeline():
     # 0. DB init
     await init_db()
+    from packages.common.config import settings
+    settings.CIRCUIT_BREAKER_TRIGGERED = False
+    settings.EXECUTION_MODE = "PAPER"
+    settings.MIN_BUYING_POWER_RESERVE = 50000.0
 
     symbol = "AAPL"
     # 1. Ingest Data

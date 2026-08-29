@@ -42,11 +42,6 @@ class ExecutionRouter:
         risk_check: RiskCheckResult,
         mode: ExecutionMode = ExecutionMode.PAPER,
     ) -> Optional[OrderResponse]:
-        # 0. Master Emergency Kill Switch & Analysis-Only Check
-        if settings.CIRCUIT_BREAKER_TRIGGERED or settings.EXECUTION_MODE == "ANALYSIS_ONLY":
-            logger.warning("Execution Router: Master Kill Switch / ANALYSIS_ONLY mode is active. Order blocked.")
-            return None
-
         # 1. Non-bypassable Risk Veto Verification
         if not risk_check.approved:
             logger.warning(
@@ -60,6 +55,11 @@ class ExecutionRouter:
             )
             await telegram_notifier.notify_risk_veto(decision.symbol, risk_check.veto_reason)
             raise RiskVetoException(f"Order vetoed by Risk Management: {risk_check.veto_reason}")
+
+        # 2. Master Emergency Kill Switch & Analysis-Only Check
+        if settings.CIRCUIT_BREAKER_TRIGGERED or settings.EXECUTION_MODE == "ANALYSIS_ONLY":
+            logger.warning("Execution Router: Master Kill Switch / ANALYSIS_ONLY mode is active. Order blocked.")
+            return None
 
         if decision.action not in (ActionType.BUY, ActionType.SELL) or risk_check.max_approved_shares <= 0:
             logger.info(f"No execution needed for action {decision.action.value}")

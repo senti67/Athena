@@ -104,10 +104,10 @@ class AlpacaBrokerAdapter:
                 "account_number": "PA39281920",
                 "status": "ACTIVE",
                 "currency": "USD",
-                "equity": "100000.00",
-                "cash": "100000.00",
-                "buying_power": "200000.00",
-                "portfolio_value": "100000.00",
+                "equity": "1000000.00",
+                "cash": "1000000.00",
+                "buying_power": "4000000.00",
+                "portfolio_value": "1000000.00",
                 "pattern_day_trader": False,
                 "trading_blocked": False,
                 "transfers_blocked": False,
@@ -128,8 +128,9 @@ class AlpacaBrokerAdapter:
                     "id": "alpaca-paper-fallback",
                     "status": "ACTIVE",
                     "currency": "USD",
-                    "equity": "100000.00",
-                    "cash": "100000.00",
+                    "equity": "1000000.00",
+                    "cash": "1000000.00",
+                    "buying_power": "4000000.00",
                 }
 
     async def get_positions(self) -> List[Dict[str, Any]]:
