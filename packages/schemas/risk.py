@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class RiskLimits(BaseModel):
     max_daily_loss: float = 5000.0
     max_position_size: float = 50000.0
+    min_buying_power_reserve: float = 200000.0  # Hard floor of $200,000 buying power
     max_portfolio_exposure: float = 1.0  # 100%
     max_single_asset_exposure: float = 0.10  # 10%
     max_sector_concentration: float = 0.25  # 25%

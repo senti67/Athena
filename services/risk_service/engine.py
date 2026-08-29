@@ -29,6 +29,7 @@ class RiskEngine:
         self.limits = custom_limits or RiskLimits(
             max_daily_loss=settings.MAX_DAILY_LOSS,
             max_position_size=settings.MAX_POSITION_SIZE,
+            min_buying_power_reserve=settings.MIN_BUYING_POWER_RESERVE,
             max_portfolio_exposure=settings.MAX_PORTFOLIO_EXPOSURE,
             max_leverage=settings.MAX_LEVERAGE,
             max_sector_concentration=settings.MAX_SECTOR_CONCENTRATION,
@@ -169,8 +170,7 @@ class RiskEngine:
                 )
             )
 
-        # 9. CASH AVAILABILITY & MANDATORY RESERVE FLOOR (Keep at least 25% cash buffer)
-        min_cash_buffer = portfolio_state.nav * 0.25
+        # 9. CASH AVAILABILITY & MANDATORY $200,000 MINIMUM BUYING POWER RESERVE FLOOR
         if decision.action == ActionType.BUY:
             if proposed_dollar_value > portfolio_state.cash:
                 approved = False
@@ -185,14 +185,14 @@ class RiskEngine:
                         severity="CRITICAL",
                     )
                 )
-            elif (portfolio_state.cash - proposed_dollar_value) < min_cash_buffer:
+            elif (portfolio_state.cash - proposed_dollar_value) < self.limits.min_buying_power_reserve and portfolio_state.nav > self.limits.min_buying_power_reserve:
                 approved = False
-                msg = f"Cash reserve safety floor ($25,000 / 25% NAV) reached. New buys locked to preserve capital liquidity."
+                msg = f"Mandatory buying power safety reserve floor (${self.limits.min_buying_power_reserve:,.2f}) reached. New purchases locked to guarantee at least $200,000.00 buying power."
                 veto_reason = msg
                 violations.append(
                     RiskViolation(
-                        rule_name="CASH_RESERVE_FLOOR",
-                        limit_value=min_cash_buffer,
+                        rule_name="MIN_BUYING_POWER_RESERVE_FLOOR",
+                        limit_value=self.limits.min_buying_power_reserve,
                         current_or_projected_value=portfolio_state.cash - proposed_dollar_value,
                         message=msg,
                         severity="HIGH",

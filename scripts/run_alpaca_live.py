@@ -83,9 +83,9 @@ async def run_alpaca_pipeline(symbol: str = "AAPL"):
         print("=" * 85)
         return
 
-    if buying_power < 25000.0:
-        print(f"\n[RISK GUARD] Alpaca Buying Power (${buying_power:,.2f}) is below cash reserve safety floor ($25,000.00).")
-        print(f"             Pausing new purchases to protect portfolio liquidity.")
+    if buying_power < settings.MIN_BUYING_POWER_RESERVE:
+        print(f"\n[RISK GUARD] Alpaca Buying Power (${buying_power:,.2f}) has reached your $200,000.00 minimum reserve floor.")
+        print(f"             New purchases are strictly LOCKED to preserve at least $200k buying power.")
         print("=" * 85)
         return
 

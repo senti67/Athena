@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Risk Management Limits (Calibrated for institutional risk)
     MAX_DAILY_LOSS: float = 5000.00           # $5,000 max daily loss
     MAX_POSITION_SIZE: float = 50000.00       # $50,000 max per position
+    MIN_BUYING_POWER_RESERVE: float = 200000.00 # Minimum $200k buying power lock
     MAX_PORTFOLIO_EXPOSURE: float = 1.00
     MAX_LEVERAGE: float = 1.00
     MAX_SECTOR_CONCENTRATION: float = 0.30
