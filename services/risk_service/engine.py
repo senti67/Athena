@@ -1,18 +1,16 @@
 """
-ATHENA Independent Risk Management VETO Layer
-Holds unilateral, non-bypassable veto power over all AI agent and strategy recommendations.
+ATHENA Independent Risk Management VETO Layer (Production Hard Bounds)
+Enforces absolute veto authority, single position limits, duplicate position locks,
+maximum simultaneous holding caps, and mandatory cash reserve floors.
 """
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from packages.common.config import settings
-from packages.common.exceptions import RiskVetoException
-from packages.event_bus.bus import event_bus
 from packages.logging.logger import get_logger
 from packages.monitoring.metrics import metrics
 from packages.schemas.decision import ActionType, TradingDecision
-from packages.schemas.events import Event, EventType
 from packages.schemas.portfolio import PortfolioState
 from packages.schemas.risk import (
     RiskCheckResult,
@@ -25,28 +23,25 @@ logger = get_logger("athena.risk_engine")
 
 
 class RiskEngine:
-    """
-    Independent Risk Guardian.
-    Evaluates every proposed trade against institutional hard bounds.
-    Can veto any order before it reaches the execution router.
-    """
+    """Institutional Risk Management Gatekeeper with Non-Bypassable Unilateral Veto."""
 
-    def __init__(self, limits: Optional[RiskLimits] = None):
-        self.limits = limits or RiskLimits(
+    def __init__(self, custom_limits: Optional[RiskLimits] = None):
+        self.limits = custom_limits or RiskLimits(
             max_daily_loss=settings.MAX_DAILY_LOSS,
             max_position_size=settings.MAX_POSITION_SIZE,
             max_portfolio_exposure=settings.MAX_PORTFOLIO_EXPOSURE,
-            max_single_asset_exposure=settings.MAX_SINGLE_ASSET_EXPOSURE,
-            max_sector_concentration=settings.MAX_SECTOR_CONCENTRATION,
             max_leverage=settings.MAX_LEVERAGE,
+            max_sector_concentration=settings.MAX_SECTOR_CONCENTRATION,
+            max_single_asset_exposure=settings.MAX_SINGLE_ASSET_EXPOSURE,
             max_drawdown_limit=settings.MAX_DRAWDOWN_LIMIT,
             var_95_limit=settings.VAR_95_LIMIT,
             cvar_95_limit=settings.CVAR_95_LIMIT,
+            min_data_quality_score=settings.MIN_DATA_QUALITY_SCORE,
+            min_risk_reward_ratio=1.9,
         )
         self.kill_switch_active = settings.CIRCUIT_BREAKER_TRIGGERED
 
-    def trigger_kill_switch(self, reason: str = "Manual Emergency Operator Kill Switch"):
-        """Instantly halts all trading activity platform-wide."""
+    def trigger_kill_switch(self, reason: str = "Manual Emergency Override"):
         self.kill_switch_active = True
         logger.critical(f"EMERGENCY KILL SWITCH ACTIVATED: {reason}")
 
@@ -116,18 +111,49 @@ class RiskEngine:
                 )
             )
 
-        # 5. MAXIMUM POSITION SIZE CHECK
+        # 5. DUPLICATE POSITION LOCK (Anti-Overtrading Guard)
+        if decision.action == ActionType.BUY and decision.symbol in portfolio_state.positions:
+            existing = portfolio_state.positions[decision.symbol]
+            if existing.shares > 0:
+                approved = False
+                msg = f"Position in {decision.symbol} already active ({existing.shares:.0f} shares). Re-buying blocked to prevent over-concentration."
+                veto_reason = msg
+                violations.append(
+                    RiskViolation(
+                        rule_name="DUPLICATE_POSITION_LOCK",
+                        limit_value=1.0,
+                        current_or_projected_value=2.0,
+                        message=msg,
+                        severity="HIGH",
+                    )
+                )
+
+        # 6. MAXIMUM SIMULTANEOUS ACTIVE POSITIONS CAP (Max 4 holdings)
+        if decision.action == ActionType.BUY and len(portfolio_state.positions) >= 4 and decision.symbol not in portfolio_state.positions:
+            approved = False
+            msg = f"Maximum simultaneous portfolio positions limit (4) reached. Awaiting profit-taking exit on active holdings before opening new trades."
+            veto_reason = msg
+            violations.append(
+                RiskViolation(
+                    rule_name="MAX_PORTFOLIO_CONCURRENT_POSITIONS",
+                    limit_value=4.0,
+                    current_or_projected_value=len(portfolio_state.positions) + 1.0,
+                    message=msg,
+                    severity="HIGH",
+                )
+            )
+
+        # 7. MAXIMUM POSITION SIZE CHECK
         proposed_dollar_value = decision.suggested_shares * decision.current_price
         if proposed_dollar_value > self.limits.max_position_size:
-            # Scale down rather than full rejection if feasible
-            max_allowed_shares = int(self.limits.max_position_size / decision.current_price)
+            max_allowed_shares = int(self.limits.max_position_size / max(decision.current_price, 1.0))
             warnings.append(
                 f"Proposed order (${proposed_dollar_value:,.2f}) scaled down to max size (${self.limits.max_position_size:,.2f})."
             )
             decision.suggested_shares = max_allowed_shares
             proposed_dollar_value = max_allowed_shares * decision.current_price
 
-        # 6. SINGLE ASSET EXPOSURE (Cap at e.g. 10% NAV)
+        # 8. SINGLE ASSET EXPOSURE (Cap at 15% NAV)
         projected_asset_weight = proposed_dollar_value / max(1.0, portfolio_state.nav)
         if projected_asset_weight > self.limits.max_single_asset_exposure:
             approved = False
@@ -143,22 +169,37 @@ class RiskEngine:
                 )
             )
 
-        # 7. CASH AVAILABILITY & BUYING POWER
-        if decision.action == ActionType.BUY and proposed_dollar_value > portfolio_state.cash:
-            approved = False
-            msg = f"Insufficient cash buying power (${portfolio_state.cash:,.2f}) for proposed order (${proposed_dollar_value:,.2f})."
-            veto_reason = msg
-            violations.append(
-                RiskViolation(
-                    rule_name="INSUFFICIENT_BUYING_POWER",
-                    limit_value=portfolio_state.cash,
-                    current_or_projected_value=proposed_dollar_value,
-                    message=msg,
-                    severity="CRITICAL",
+        # 9. CASH AVAILABILITY & MANDATORY RESERVE FLOOR (Keep at least 25% cash buffer)
+        min_cash_buffer = portfolio_state.nav * 0.25
+        if decision.action == ActionType.BUY:
+            if proposed_dollar_value > portfolio_state.cash:
+                approved = False
+                msg = f"Insufficient cash buying power (${portfolio_state.cash:,.2f}) for proposed order (${proposed_dollar_value:,.2f})."
+                veto_reason = msg
+                violations.append(
+                    RiskViolation(
+                        rule_name="INSUFFICIENT_BUYING_POWER",
+                        limit_value=portfolio_state.cash,
+                        current_or_projected_value=proposed_dollar_value,
+                        message=msg,
+                        severity="CRITICAL",
+                    )
                 )
-            )
+            elif (portfolio_state.cash - proposed_dollar_value) < min_cash_buffer:
+                approved = False
+                msg = f"Cash reserve safety floor ($25,000 / 25% NAV) reached. New buys locked to preserve capital liquidity."
+                veto_reason = msg
+                violations.append(
+                    RiskViolation(
+                        rule_name="CASH_RESERVE_FLOOR",
+                        limit_value=min_cash_buffer,
+                        current_or_projected_value=portfolio_state.cash - proposed_dollar_value,
+                        message=msg,
+                        severity="HIGH",
+                    )
+                )
 
-        # 8. MINIMUM REWARD-TO-RISK RATIO
+        # 10. MINIMUM REWARD-TO-RISK RATIO
         if decision.action == ActionType.BUY and decision.risk_reward_ratio < self.limits.min_risk_reward_ratio:
             approved = False
             msg = f"Reward-to-risk ratio ({decision.risk_reward_ratio:.2f}) below institutional requirement ({self.limits.min_risk_reward_ratio:.2f})."

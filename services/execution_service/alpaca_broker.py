@@ -147,6 +147,34 @@ class AlpacaBrokerAdapter:
                 logger.warning(f"Error fetching Alpaca positions: {e}")
                 return []
 
+    async def get_open_orders(self) -> List[Dict[str, Any]]:
+        """Fetches all pending / open / queued orders from Alpaca Paper API."""
+        if not self._has_valid_credentials():
+            return []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                res = await client.get(f"{self.base_url}/v2/orders?status=open", headers=self.headers)
+                if res.status_code == 200:
+                    return res.json()
+                return []
+            except Exception as e:
+                logger.warning(f"Error fetching open orders from Alpaca: {e}")
+                return []
+
+    async def cancel_all_orders(self) -> bool:
+        """Cancels all pending open orders on Alpaca."""
+        if not self._has_valid_credentials():
+            return True
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                res = await client.delete(f"{self.base_url}/v2/orders", headers=self.headers)
+                return res.status_code in (200, 204, 207)
+            except Exception as e:
+                logger.error(f"Error cancelling all Alpaca orders: {e}")
+                return False
+
     async def submit_order(self, request: OrderRequest) -> OrderResponse:
         """
         Submits an order to Alpaca Paper Trading.

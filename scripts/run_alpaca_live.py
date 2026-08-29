@@ -64,11 +64,30 @@ async def run_alpaca_pipeline(symbol: str = "AAPL"):
     print(f"[OK] Connected to Alpaca Account: {acct.get('account_number', 'PAPER-ACTIVE')} | Status: {acct.get('status', 'ACTIVE')}")
     print(f"     Equity: ${equity:,.2f} | Cash: ${cash:,.2f} | Buying Power: ${buying_power:,.2f}")
 
-    # Fetch current open positions from Alpaca
+    # Fetch current open positions and queued orders from Alpaca
     alpaca_positions = await alpaca_broker.get_positions()
-    print(f"[OK] Current Open Positions on Alpaca: {len(alpaca_positions)}")
+    open_orders = await alpaca_broker.get_open_orders()
+    portfolio_manager.sync_from_alpaca(acct, alpaca_positions)
+    print(f"[OK] Current Open Positions on Alpaca: {len(alpaca_positions)} | Active Queued Orders: {len(open_orders)}")
     for pos in alpaca_positions:
-        print(f"     - {pos.get('symbol')}: {pos.get('qty')} shares @ avg ${float(pos.get('avg_entry_price', 0)):,.2f} (Current: ${float(pos.get('current_price', 0)):,.2f})")
+        print(f"     - [Position] {pos.get('symbol')}: {pos.get('qty')} shares @ avg ${float(pos.get('avg_entry_price', 0)):,.2f} (Current: ${float(pos.get('current_price', 0)):,.2f})")
+
+    # Anti-Duplicate & Buying Power Safety Filter
+    symbol_upper = symbol.upper()
+    existing_queued_symbols = [o.get("symbol", "").upper() for o in open_orders]
+    existing_position_symbols = [p.get("symbol", "").upper() for p in alpaca_positions]
+
+    if symbol_upper in existing_queued_symbols or symbol_upper in existing_position_symbols:
+        print(f"\n[HOLD] Asset {symbol_upper} already has an active position / queued order on Alpaca.")
+        print(f"       Preserving capital and preventing duplicate re-buying. (No new order placed)")
+        print("=" * 85)
+        return
+
+    if buying_power < 25000.0:
+        print(f"\n[RISK GUARD] Alpaca Buying Power (${buying_power:,.2f}) is below cash reserve safety floor ($25,000.00).")
+        print(f"             Pausing new purchases to protect portfolio liquidity.")
+        print("=" * 85)
+        return
 
     # 1. Ingest Market Data
     print(f"\n[Step 1] Ingesting Real-Time Market Data for {symbol} & Evaluating Quality...")

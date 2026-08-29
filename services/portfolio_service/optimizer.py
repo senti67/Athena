@@ -54,8 +54,41 @@ class PortfolioManager:
         logger.info(f"Deposited ₹{amount:,.2f} INR. New NAV=₹{self.state.nav:,.2f}")
         return self.get_portfolio_state()
 
+    def sync_from_alpaca(self, acct: Dict, positions: List[Dict]) -> PortfolioState:
+        """Synchronizes real Alpaca account equity, cash, and open positions into local state."""
+        equity = float(acct.get("equity") or acct.get("portfolio_value") or 100000.0)
+        cash = float(acct.get("cash") or 100000.0)
+        self.state.nav = round(equity, 2)
+        self.state.cash = round(cash, 2)
+
+        new_positions = {}
+        for pos in positions:
+            sym = pos.get("symbol", "").upper()
+            qty = float(pos.get("qty", 0.0))
+            entry_px = float(pos.get("avg_entry_price", 0.0))
+            cur_px = float(pos.get("current_price", entry_px))
+            mkt_val = float(pos.get("market_value", qty * cur_px))
+            unrealized = float(pos.get("unrealized_pl", mkt_val - (qty * entry_px)))
+            unrealized_pct = float(pos.get("unrealized_plpc", 0.0))
+
+            if qty > 0:
+                new_positions[sym] = Position(
+                    symbol=sym,
+                    shares=qty,
+                    average_entry_price=entry_px,
+                    current_price=cur_px,
+                    market_value=mkt_val,
+                    cost_basis=round(qty * entry_px, 2),
+                    unrealized_pnl=unrealized,
+                    unrealized_pnl_pct=unrealized_pct,
+                    portfolio_weight=round(mkt_val / equity if equity > 0 else 0.0, 4),
+                )
+
+        self.state.positions = new_positions
+        return self.get_portfolio_state()
+
     def get_portfolio_state(self) -> PortfolioState:
-        """Computes current NAV, exposures, and unrealized PnL in INR."""
+        """Computes current NAV, exposures, and unrealized PnL."""
         total_market_val = sum(p.market_value for p in self.state.positions.values())
         nav = self.state.cash + total_market_val
         self.state.nav = round(nav, 2)
