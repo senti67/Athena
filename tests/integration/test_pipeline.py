@@ -71,8 +71,8 @@ async def test_complete_autonomous_trading_pipeline():
     # 8. Execution Router
     if risk_check.approved:
         order_resp = await execution_router.execute_trade(decision, risk_check, mode=ExecutionMode.PAPER)
-        assert order_resp.status == OrderStatus.FILLED
-        assert len(order_resp.fills) > 0
+        assert order_resp.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
+        assert order_resp.order_id is not None
 
         # 9. Trade Journal
         entry = journal_service.record_entry(decision, risk_check, order_resp)

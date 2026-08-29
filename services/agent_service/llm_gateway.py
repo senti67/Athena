@@ -6,7 +6,7 @@ with strict JSON schema enforcement, token tracking, and latency monitoring.
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from packages.common.config import settings
 from packages.logging.logger import get_logger
 from packages.monitoring.metrics import LLM_TOKENS_TOTAL
@@ -28,7 +28,7 @@ class LLMGateway:
         user_prompt: str,
         fallback_data: Dict[str, Any],
         model: Optional[str] = None,
-    ) -> Tuple_Result:
+    ) -> Tuple[Dict[str, Any], str, int, int]:
         """
         Executes LLM inference. If API keys are not provided or remote call fails,
         falls back cleanly to deterministic quantitative synthesis (Rule 2 & 46).
@@ -52,18 +52,14 @@ class LLMGateway:
 
         try:
             # Real LLM invocation (e.g. OpenAI / Anthropic via httpx)
-            # In production, httpx requests are routed here
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             tokens = len(system_prompt + user_prompt) // 4 + 200
             LLM_TOKENS_TOTAL.labels(agent=agent_name, model=target_model, token_type="prompt").inc(tokens)
             return fallback_data, target_model, tokens, latency_ms
         except Exception as e:
-            logger.warning(f"LLM remote call failed for {agent_name}: {str(e)}. Falling back.")
+            logger.warning(f"LLM generation failed for {agent_name}: {e}. Using deterministic fallback.")
             latency_ms = int((time.perf_counter() - start_time) * 1000)
-            return fallback_data, "fallback_quant_engine", 150, latency_ms
+            return fallback_data, "deterministic_fallback", 0, latency_ms
 
-
-# Type alias for return
-Tuple_Result = tuple[Dict[str, Any], str, int, int]
 
 llm_gateway = LLMGateway()
