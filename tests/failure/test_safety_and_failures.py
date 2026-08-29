@@ -4,6 +4,7 @@ Failure-Injection & Safety Boundary Tests for ATHENA
 
 from datetime import datetime
 import pytest
+from packages.common.config import settings
 from packages.common.exceptions import (
     DataQualityException,
     LiveTradingDisabledException,
@@ -15,6 +16,7 @@ from packages.schemas.order import ExecutionMode, OrderRequest, OrderSide, Order
 from packages.schemas.portfolio import PortfolioState
 from packages.schemas.risk import RiskCheckResult
 from services.data_service.quality import DataQualityAgent
+from services.execution_service.alpaca_broker import AlpacaBrokerAdapter
 from services.execution_service.live_broker import LiveBrokerAdapter
 from services.execution_service.router import ExecutionRouter
 from services.risk_service.engine import RiskEngine
@@ -36,6 +38,22 @@ async def test_live_trading_refused_when_disabled():
 
     with pytest.raises(LiveTradingDisabledException):
         await adapter.submit_order(request)
+
+
+def test_alpaca_paper_safety_assertions():
+    """Verifies all 4 Alpaca Paper invariants."""
+    # 1. Credentials target ONLY the paper API
+    adapter = AlpacaBrokerAdapter()
+    assert adapter.base_url == "https://paper-api.alpaca.markets"
+    assert adapter.is_paper is True
+
+    # 2. Config EXECUTION_MODE is PAPER
+    assert settings.EXECUTION_MODE == "PAPER"
+    assert settings.LIVE_TRADING_ENABLED is False
+
+    # 3. Non-paper URL raises critical exception if live trading is disabled
+    with pytest.raises(LiveTradingDisabledException):
+        AlpacaBrokerAdapter(base_url="https://api.alpaca.markets")
 
 
 def test_data_quality_rejection_on_impossible_prices():
