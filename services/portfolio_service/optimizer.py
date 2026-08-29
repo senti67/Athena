@@ -1,8 +1,9 @@
 """
-ATHENA Portfolio Manager & Dynamic Position Sizing Service
+ATHENA Portfolio Manager & Dynamic Position Sizing Service (INR Native)
 """
 
 from typing import Dict, List, Optional
+from packages.common.config import settings
 from packages.logging.logger import get_logger
 from packages.quant.optimization import optimize_portfolio
 from packages.schemas.portfolio import (
@@ -16,18 +17,45 @@ logger = get_logger("athena.portfolio_service")
 
 
 class PortfolioManager:
-    """Manages active holdings, state calculations, and portfolio optimization."""
+    """Manages active holdings, state calculations, and portfolio optimization in INR."""
 
-    def __init__(self, initial_cash: float = 100000.0):
+    def __init__(self, initial_cash: Optional[float] = None):
+        starting_cash = initial_cash if initial_cash is not None else settings.PAPER_STARTING_CASH
         self.state = PortfolioState(
-            account_id="ATHENA_ALPHA_PORTFOLIO",
+            account_id="ATHENA_ALPHA_PORTFOLIO_INR",
+            nav=starting_cash,
+            cash=starting_cash,
+            positions={},
+            daily_realized_pnl=0.0,
+            total_pnl=0.0,
+        )
+
+    def reset_portfolio(self, initial_cash: float = 1000000.0) -> PortfolioState:
+        """Resets the portfolio state completely to initial clean cash balance with 0 positions."""
+        self.state = PortfolioState(
+            account_id="ATHENA_ALPHA_PORTFOLIO_INR",
             nav=initial_cash,
             cash=initial_cash,
             positions={},
+            daily_realized_pnl=0.0,
+            total_pnl=0.0,
+            gross_exposure=0.0,
+            net_exposure=0.0,
+            leverage=0.0,
+            total_positions_count=0,
         )
+        logger.info(f"Portfolio reset to clean state: Starting Cash=₹{initial_cash:,.2f}, Positions=0")
+        return self.state
+
+    def deposit_cash(self, amount: float) -> PortfolioState:
+        """Deposits INR funds into the paper trading portfolio."""
+        self.state.cash += amount
+        self.state.nav += amount
+        logger.info(f"Deposited ₹{amount:,.2f} INR. New NAV=₹{self.state.nav:,.2f}")
+        return self.get_portfolio_state()
 
     def get_portfolio_state(self) -> PortfolioState:
-        """Computes current NAV, exposures, and unrealized PnL."""
+        """Computes current NAV, exposures, and unrealized PnL in INR."""
         total_market_val = sum(p.market_value for p in self.state.positions.values())
         nav = self.state.cash + total_market_val
         self.state.nav = round(nav, 2)
@@ -92,7 +120,7 @@ class PortfolioManager:
                     pos.unrealized_pnl = round((price - pos.average_entry_price) * pos.shares, 2)
 
         self.get_portfolio_state()
-        logger.info(f"Portfolio updated: NAV=${self.state.nav:,.2f}, Cash=${self.state.cash:,.2f}, Positions={len(self.state.positions)}")
+        logger.info(f"Portfolio updated: NAV=₹{self.state.nav:,.2f}, Cash=₹{self.state.cash:,.2f}, Positions={len(self.state.positions)}")
 
     def optimize_allocation(
         self,

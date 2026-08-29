@@ -1,6 +1,5 @@
 """
-ATHENA Centralized Application Configuration
-Provides strongly-typed settings validated at runtime.
+ATHENA Centralized Application Configuration (INR / Indian Markets Enabled)
 """
 
 from typing import List, Optional
@@ -24,7 +23,11 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
-    # Execution & Safety Controls (CRITICAL: Live trading disabled by default)
+    # Currency & Localization
+    CURRENCY_CODE: str = "INR"
+    CURRENCY_SYMBOL: str = "₹"
+
+    # Execution & Safety Controls (Live trading disabled by default)
     LIVE_TRADING_ENABLED: bool = Field(
         default=False,
         description="Master live execution switch. MUST remain false by default.",
@@ -36,13 +39,13 @@ class Settings(BaseSettings):
     DEFAULT_CONFIDENCE_THRESHOLD: float = 0.75
     MIN_DATA_QUALITY_SCORE: float = 0.80
 
-    # Risk Management Limits
-    MAX_DAILY_LOSS: float = 5000.00
-    MAX_POSITION_SIZE: float = 50000.00
+    # Risk Management Limits (Calibrated in INR)
+    MAX_DAILY_LOSS: float = 50000.00          # ₹50,000 max daily loss
+    MAX_POSITION_SIZE: float = 500000.00      # ₹5,00,000 max per position
     MAX_PORTFOLIO_EXPOSURE: float = 1.00
     MAX_LEVERAGE: float = 1.00
-    MAX_SECTOR_CONCENTRATION: float = 0.25
-    MAX_SINGLE_ASSET_EXPOSURE: float = 0.10
+    MAX_SECTOR_CONCENTRATION: float = 0.30
+    MAX_SINGLE_ASSET_EXPOSURE: float = 0.20
     MAX_DRAWDOWN_LIMIT: float = 0.15
     VAR_95_LIMIT: float = 0.03
     CVAR_95_LIMIT: float = 0.05
@@ -79,7 +82,7 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 30
 
     # Market Data Providers
-    MARKET_DATA_PROVIDER: str = "mock"
+    MARKET_DATA_PROVIDER: str = "nse_yfinance"
     ALPHA_VANTAGE_API_KEY: Optional[str] = None
     POLYGON_API_KEY: Optional[str] = None
     FMP_API_KEY: Optional[str] = None
@@ -90,10 +93,10 @@ class Settings(BaseSettings):
     BROKER_API_SECRET: Optional[str] = None
     BROKER_BASE_URL: str = "https://paper-api.alpaca.markets"
 
-    # Paper Trading Simulation Parameters
-    PAPER_STARTING_CASH: float = 100000.00
+    # Paper Trading Simulation Parameters (Starting Paper Balance in INR: ₹10,00,000 / 10 Lakhs)
+    PAPER_STARTING_CASH: float = 1000000.00
     PAPER_SLIPPAGE_BPS: float = 5.0
-    PAPER_COMMISSION_PER_SHARE: float = 0.005
+    PAPER_COMMISSION_PER_SHARE: float = 0.05
     PAPER_LATENCY_MS: int = 50
 
     # Observability
@@ -101,5 +104,4 @@ class Settings(BaseSettings):
     OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = "http://localhost:4317"
 
 
-# Singleton instance
 settings = Settings()
