@@ -41,6 +41,19 @@ async def run_alpaca_pipeline(symbol: str = "AAPL"):
     print(f"  Target Endpoint: {settings.ALPACA_BASE_URL}/v2")
     print("=" * 85)
 
+    # Check for real user Alpaca API keys
+    has_real_keys = (
+        bool(settings.ALPACA_API_KEY)
+        and settings.ALPACA_API_KEY != "your_alpaca_api_key_id"
+        and not settings.ALPACA_API_KEY.startswith("PK_MOCK")
+    )
+
+    if not has_real_keys:
+        print("\n[!] NOTICE: You have not configured your Alpaca API Keys in `.env` yet.")
+        print("    1. Look at the right side of your Alpaca screen and click 'Generate New Keys'")
+        print("    2. Add ALPACA_API_KEY and ALPACA_SECRET_KEY to Athena/.env")
+        print("    (Running in simulation mode until real keys are added)\n")
+
     # 0. Initialize DB & Sync Alpaca Account
     await init_db()
     print("\n[Step 0] Synchronizing with Alpaca Paper Trading Account...")
@@ -134,8 +147,12 @@ async def run_alpaca_pipeline(symbol: str = "AAPL"):
     print(f"[OK] Trade Journal Entry Created: ID {journal_entry.trade_id}")
 
     print("\n" + "=" * 85)
-    print("  ALPACA TRADING CYCLE COMPLETE - VIEW LIVE AT YOUR ALPACA DASHBOARD")
-    print("  https://app.alpaca.markets/paper/dashboard/overview")
+    if has_real_keys:
+        print("  SUCCESS! Real Paper Order dispatched to your Alpaca Account!")
+    else:
+        print("  ALPACA SIMULATION COMPLETED")
+        print("  To see orders in your Alpaca Dashboard, add your API keys to Athena/.env")
+    print("  View at: https://app.alpaca.markets/paper/dashboard/overview")
     print("=" * 85)
 
 
