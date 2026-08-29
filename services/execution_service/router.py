@@ -1,6 +1,6 @@
 """
 ATHENA Deterministic Execution Router (Alpaca Paper Trading Integration)
-Coordinates Decision -> Risk Veto -> Order Creation -> Broker Dispatch -> Portfolio Update.
+Coordinates Decision -> Risk Veto -> Order Creation -> Broker Dispatch -> Telegram Notification -> Portfolio Update.
 """
 
 import uuid
@@ -19,6 +19,7 @@ from packages.schemas.order import (
     OrderType,
 )
 from packages.schemas.risk import RiskCheckResult
+from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
 from .alpaca_broker import alpaca_broker
 from .live_broker import live_broker
@@ -28,7 +29,7 @@ logger = get_logger("athena.execution_router")
 
 
 class ExecutionRouter:
-    """Deterministic, safety-audited order execution pipeline with Alpaca support."""
+    """Deterministic, safety-audited order execution pipeline with Alpaca & Telegram support."""
 
     def __init__(self):
         self.alpaca_broker = alpaca_broker
@@ -52,6 +53,7 @@ class ExecutionRouter:
                     payload={"decision_id": decision.id, "reason": risk_check.veto_reason},
                 )
             )
+            await telegram_notifier.notify_risk_veto(decision.symbol, risk_check.veto_reason)
             raise RiskVetoException(f"Order vetoed by Risk Management: {risk_check.veto_reason}")
 
         if decision.action not in (ActionType.BUY, ActionType.SELL) or risk_check.max_approved_shares <= 0:
@@ -94,7 +96,19 @@ class ExecutionRouter:
         else:
             order_response = await self.paper_broker.submit_order(order_request)
 
-        # 5. Process Fills and Update Portfolio
+        # 5. Dispatch Telegram Trade Notification
+        await telegram_notifier.notify_order_submitted(
+            symbol=decision.symbol,
+            action=decision.action.value,
+            quantity=float(risk_check.max_approved_shares),
+            price=decision.current_price,
+            order_id=order_response.order_id,
+            stop_loss=decision.stop_loss,
+            take_profit=decision.take_profit,
+            confidence=decision.confidence,
+        )
+
+        # 6. Process Fills and Update Portfolio
         for fill in order_response.fills:
             portfolio_manager.update_position_from_fill(
                 symbol=fill.symbol,
