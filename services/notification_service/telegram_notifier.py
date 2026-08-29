@@ -117,23 +117,47 @@ class TelegramNotifier:
         )
         await self.send_message(msg)
 
-    async def notify_daily_summary(
+    async def notify_position_health_report(
         self,
+        symbol: str,
+        shares: float,
+        entry_price: float,
+        current_price: float,
+        unrealized_pnl: float,
+        unrealized_pnl_pct: float,
+        rsi: float,
+        regime: str,
+        verdict: str,
+        stop_loss: float,
+        take_profit: float,
         nav: float,
-        cash: float,
-        trades_count: int,
-        positions_count: int,
+        buying_power: float,
     ):
-        """Sends daily portfolio summary report."""
+        """Sends comprehensive 2-hour intraday position progress analysis to Telegram."""
+        pnl_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
+        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        tp_dist = ((take_profit - current_price) / current_price) * 100
+        sl_dist = ((current_price - stop_loss) / current_price) * 100
+
         msg = (
-            f"📊 *ATHENA Daily Performance Summary* 📊\n"
+            f"📈 *ATHENA 2-Hour Holding Analysis* 📈\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Portfolio NAV*: `${nav:,.2f}`\n"
-            f"• *Available Cash*: `${cash:,.2f}`\n"
-            f"• *Trades Executed Today*: `{trades_count}`\n"
-            f"• *Active Positions*: `{positions_count}`\n"
+            f"• *Asset*: `{symbol}` ({shares:.0f} shares)\n"
+            f"• *Entry Price*: `${entry_price:,.2f}`\n"
+            f"• *Current Price*: `${current_price:,.2f}`\n"
+            f"• *Unrealized P&L*: {pnl_emoji} *{unrealized_pnl_pct:+.2f}%* (`${unrealized_pnl:+,.2f}`)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🤖 _Autonomous Hedge Fund Engine Active_"
+            f"🎯 *Target & Safety Levels*:\n"
+            f"• *Take-Profit Target*: `${take_profit:,.2f}` ({tp_dist:+.1f}% runway)\n"
+            f"• *Stop-Loss Floor*: `${stop_loss:,.2f}` ({sl_dist:+.1f}% safety cushion)\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🧠 *Quantitative Health Check*:\n"
+            f"• *RSI(14)*: `{rsi:.1f}`\n"
+            f"• *Market Regime*: `{regime}`\n"
+            f"• *AI Verdict*: 🛡️ *{verdict}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💼 *Portfolio Health*: NAV `${nav:,.2f}` | BP `${buying_power:,.2f}`\n"
+            f"🕒 _Next update in 2 hours ({now_utc})_"
         )
         await self.send_message(msg)
 
