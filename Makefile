@@ -1,12 +1,12 @@
-.PHONY: help install test lint run-api run-web docker-up docker-down seed simulate backtest
+.PHONY: help install test lint run-api run-alpaca docker-up docker-down seed simulate backtest
 
 help:
-	@echo "ATHENA Institutional Quantitative Platform Commands:"
-	@echo "  make install      Install all python and node dependencies"
+	@echo "ATHENA Institutional Quantitative Platform Commands (Alpaca Integrated):"
+	@echo "  make install      Install all python dependencies"
 	@echo "  make test         Run all unit, integration, and failure tests"
 	@echo "  make lint         Run ruff and black linter checks"
 	@echo "  make run-api      Run FastAPI backend locally"
-	@echo "  make run-web      Run Next.js web dashboard locally"
+	@echo "  make run-alpaca   Run autonomous Alpaca Paper Trading cycle"
 	@echo "  make docker-up    Start all containerized services"
 	@echo "  make docker-down  Stop all containerized services"
 	@echo "  make seed         Seed database with assets and historical market data"
@@ -15,7 +15,6 @@ help:
 
 install:
 	pip install -e .
-	cd apps/web && npm install
 
 test:
 	pytest tests/ -v
@@ -27,8 +26,8 @@ lint:
 run-api:
 	uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-run-web:
-	cd apps/web && npm run dev
+run-alpaca:
+	python scripts/run_alpaca_live.py AAPL
 
 docker-up:
 	docker-compose up -d

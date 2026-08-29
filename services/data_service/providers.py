@@ -1,5 +1,5 @@
 """
-ATHENA Market Data Providers - Real-Time Indian NSE / Global Data Feeds (INR)
+ATHENA Market Data Providers - Multi-Asset & Alpaca Integration (USD Native)
 """
 
 import asyncio
@@ -28,37 +28,30 @@ class MarketDataProvider(Protocol):
 
 class MockMarketDataProvider:
     """
-    High-fidelity Indian Markets (NSE / BSE in INR) & Global multi-asset provider.
+    High-fidelity multi-asset provider for US Equities, ETFs, and Crypto.
     """
 
     def __init__(self, seed: int = 42):
         random.seed(seed)
         self.base_prices: Dict[str, float] = {
-            "RELIANCE": 2980.50,
-            "TCS": 4180.20,
-            "HDFCBANK": 1645.00,
-            "INFY": 1840.10,
-            "ICICIBANK": 1215.30,
-            "TATAMOTORS": 985.40,
-            "ITC": 495.20,
-            "SBIN": 815.50,
-            "BHARTIARTL": 1560.00,
-            "LT": 3620.00,
-            "NIFTY50": 24850.00,
-            "BANKNIFTY": 51200.00,
-            # Global / Cross-asset benchmarks
-            "AAPL": 19600.00,   # INR converted (~$235)
-            "NVDA": 10700.00,   # INR converted (~$128)
-            "MSFT": 37100.00,   # INR converted (~$445)
-            "SPY": 46500.00,
-            "GLD": 19500.00,
-            "BTC": 5400000.00,  # ~₹54 Lakhs
+            "AAPL": 235.50,
+            "NVDA": 128.80,
+            "MSFT": 445.20,
+            "GOOGL": 165.40,
+            "AMZN": 178.50,
+            "META": 510.20,
+            "TSLA": 215.30,
+            "SPY": 558.00,
+            "QQQ": 482.50,
+            "TLT": 98.40,
+            "GLD": 232.10,
+            "BTC": 64500.00,
         }
         self._current_prices = dict(self.base_prices)
 
     async def get_quotes(self, symbol: str) -> Tick:
-        sym = symbol.upper().replace(".NS", "").replace("^", "")
-        price = self._current_prices.get(sym, 1000.0)
+        sym = symbol.upper()
+        price = self._current_prices.get(sym, 150.0)
 
         # Dynamic drift
         drift = random.gauss(0.0001, 0.002)
@@ -83,8 +76,8 @@ class MockMarketDataProvider:
     async def get_ohlcv(
         self, symbol: str, timeframe: str = "1d", limit: int = 200
     ) -> List[Candle]:
-        sym = symbol.upper().replace(".NS", "").replace("^", "")
-        base_p = self.base_prices.get(sym, 1000.0)
+        sym = symbol.upper()
+        base_p = self.base_prices.get(sym, 150.0)
         candles: List[Candle] = []
         current_p = base_p * 0.88
 
@@ -118,16 +111,16 @@ class MockMarketDataProvider:
         return candles
 
     async def get_order_book(self, symbol: str) -> OrderBookSnapshot:
-        sym = symbol.upper().replace(".NS", "").replace("^", "")
-        mid = self._current_prices.get(sym, 1000.0)
-        tick_increment = 0.50 if mid > 1000 else 0.05
+        sym = symbol.upper()
+        mid = self._current_prices.get(sym, 150.0)
+        tick_increment = 0.05
 
         bids = [
-            OrderBookLevel(price=round(mid - (i * tick_increment + 0.10), 2), size=float(random.randint(50, 1000)))
+            OrderBookLevel(price=round(mid - (i * tick_increment + 0.02), 2), size=float(random.randint(50, 1000)))
             for i in range(10)
         ]
         asks = [
-            OrderBookLevel(price=round(mid + (i * tick_increment + 0.10), 2), size=float(random.randint(50, 1000)))
+            OrderBookLevel(price=round(mid + (i * tick_increment + 0.02), 2), size=float(random.randint(50, 1000)))
             for i in range(10)
         ]
         bid_vol = sum(b.size for b in bids)
@@ -147,19 +140,8 @@ class MockMarketDataProvider:
 
 class RealMarketDataProvider(MockMarketDataProvider):
     """
-    Live market provider using yfinance for Indian NSE equities and global tickers,
-    with seamless fallback to simulated real-price models.
+    Live market provider using yfinance/Alpaca with fallback.
     """
-
-    def _get_ticker_symbol(self, symbol: str) -> str:
-        sym = symbol.upper().strip()
-        if sym in ("NIFTY50", "NIFTY", "^NSEI"):
-            return "^NSEI"
-        if sym in ("BANKNIFTY", "^NSEBANK"):
-            return "^NSEBANK"
-        if not sym.endswith(".NS") and not sym.startswith("^") and sym not in ("AAPL", "NVDA", "MSFT", "SPY", "QQQ", "BTC"):
-            return f"{sym}.NS"
-        return sym
 
     async def get_ohlcv(
         self, symbol: str, timeframe: str = "1d", limit: int = 200
@@ -167,17 +149,15 @@ class RealMarketDataProvider(MockMarketDataProvider):
         if not HAS_YFINANCE:
             return await super().get_ohlcv(symbol, timeframe, limit)
 
-        ticker_sym = self._get_ticker_symbol(symbol)
         try:
-            # Run yfinance in thread pool to avoid blocking async event loop
-            ticker = yf.Ticker(ticker_sym)
+            ticker = yf.Ticker(symbol.upper())
             df = await asyncio.to_thread(ticker.history, period="1y", interval="1d")
 
             if df.empty or len(df) < 20:
                 return await super().get_ohlcv(symbol, timeframe, limit)
 
             candles: List[Candle] = []
-            clean_sym = symbol.upper().replace(".NS", "").replace("^", "")
+            clean_sym = symbol.upper()
 
             for idx, row in df.tail(limit).iterrows():
                 dt = idx.to_pydatetime().replace(tzinfo=None)

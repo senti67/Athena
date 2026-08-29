@@ -64,7 +64,7 @@ services:
     networks:
       - athena-network
 
-  # Core API Service & AI Execution Gateway
+  # Core API Service & Alpaca AI Execution Gateway
   api:
     build:
       context: .
@@ -84,24 +84,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_USE_LOCAL_BUS: "false"
+      BROKER_PROVIDER: "alpaca"
+      ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
     volumes:
       - .:/app
-    networks:
-      - athena-network
-
-  # Institutional Web Dashboard (Next.js)
-  web:
-    build:
-      context: ./apps/web
-      dockerfile: ../../infrastructure/docker/Dockerfile.web
-    container_name: athena-web
-    depends_on:
-      - api
-    ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_WS_URL: ws://localhost:8000/ws/stream
     networks:
       - athena-network
 

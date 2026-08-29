@@ -1,5 +1,5 @@
 """
-ATHENA Centralized Application Configuration (INR / Indian Markets Enabled)
+ATHENA Centralized Application Configuration (Alpaca Paper Trading Integration)
 """
 
 from typing import List, Optional
@@ -23,9 +23,28 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
-    # Currency & Localization
-    CURRENCY_CODE: str = "INR"
-    CURRENCY_SYMBOL: str = "₹"
+    # Currency
+    CURRENCY_CODE: str = "USD"
+    CURRENCY_SYMBOL: str = "$"
+
+    # Alpaca Paper Trading API Configuration
+    ALPACA_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Alpaca Paper API Key ID (APCA-API-KEY-ID)",
+    )
+    ALPACA_SECRET_KEY: Optional[str] = Field(
+        default=None,
+        description="Alpaca Paper Secret Key (APCA-API-SECRET-KEY)",
+    )
+    ALPACA_BASE_URL: str = Field(
+        default="https://paper-api.alpaca.markets",
+        description="Alpaca Paper Trading Base URL",
+    )
+    ALPACA_DATA_URL: str = Field(
+        default="https://data.alpaca.markets",
+        description="Alpaca Market Data Base URL",
+    )
+    ALPACA_PAPER: bool = True
 
     # Execution & Safety Controls (Live trading disabled by default)
     LIVE_TRADING_ENABLED: bool = Field(
@@ -39,9 +58,9 @@ class Settings(BaseSettings):
     DEFAULT_CONFIDENCE_THRESHOLD: float = 0.75
     MIN_DATA_QUALITY_SCORE: float = 0.80
 
-    # Risk Management Limits (Calibrated in INR)
-    MAX_DAILY_LOSS: float = 50000.00          # ₹50,000 max daily loss
-    MAX_POSITION_SIZE: float = 500000.00      # ₹5,00,000 max per position
+    # Risk Management Limits (Calibrated for institutional risk)
+    MAX_DAILY_LOSS: float = 5000.00           # $5,000 max daily loss
+    MAX_POSITION_SIZE: float = 50000.00       # $50,000 max per position
     MAX_PORTFOLIO_EXPOSURE: float = 1.00
     MAX_LEVERAGE: float = 1.00
     MAX_SECTOR_CONCENTRATION: float = 0.30
@@ -82,21 +101,20 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 30
 
     # Market Data Providers
-    MARKET_DATA_PROVIDER: str = "nse_yfinance"
+    MARKET_DATA_PROVIDER: str = "alpaca"
     ALPHA_VANTAGE_API_KEY: Optional[str] = None
     POLYGON_API_KEY: Optional[str] = None
-    FMP_API_KEY: Optional[str] = None
 
-    # Broker Integrations
-    BROKER_PROVIDER: str = "paper"
+    # Broker Provider (Default: alpaca)
+    BROKER_PROVIDER: str = "alpaca"
     BROKER_API_KEY: Optional[str] = None
     BROKER_API_SECRET: Optional[str] = None
     BROKER_BASE_URL: str = "https://paper-api.alpaca.markets"
 
-    # Paper Trading Simulation Parameters (Starting Paper Balance in INR: ₹10,00,000 / 10 Lakhs)
-    PAPER_STARTING_CASH: float = 1000000.00
+    # Paper Trading Simulation Parameters
+    PAPER_STARTING_CASH: float = 100000.00
     PAPER_SLIPPAGE_BPS: float = 5.0
-    PAPER_COMMISSION_PER_SHARE: float = 0.05
+    PAPER_COMMISSION_PER_SHARE: float = 0.005
     PAPER_LATENCY_MS: int = 50
 
     # Observability

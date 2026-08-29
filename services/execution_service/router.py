@@ -1,10 +1,11 @@
 """
-ATHENA Deterministic Execution Router
+ATHENA Deterministic Execution Router (Alpaca Paper Trading Integration)
 Coordinates Decision -> Risk Veto -> Order Creation -> Broker Dispatch -> Portfolio Update.
 """
 
 import uuid
 from typing import Optional
+from packages.common.config import settings
 from packages.common.exceptions import RiskVetoException
 from packages.event_bus.bus import event_bus
 from packages.logging.logger import get_logger
@@ -19,6 +20,7 @@ from packages.schemas.order import (
 )
 from packages.schemas.risk import RiskCheckResult
 from services.portfolio_service.optimizer import portfolio_manager
+from .alpaca_broker import alpaca_broker
 from .live_broker import live_broker
 from .paper_broker import paper_broker
 
@@ -26,9 +28,10 @@ logger = get_logger("athena.execution_router")
 
 
 class ExecutionRouter:
-    """Deterministic, safety-audited order execution pipeline."""
+    """Deterministic, safety-audited order execution pipeline with Alpaca support."""
 
     def __init__(self):
+        self.alpaca_broker = alpaca_broker
         self.paper_broker = paper_broker
         self.live_broker = live_broker
 
@@ -83,8 +86,10 @@ class ExecutionRouter:
             )
         )
 
-        # 4. Dispatch to Chosen Broker Adapter
-        if mode == ExecutionMode.LIVE:
+        # 4. Dispatch to Chosen Broker Adapter (Alpaca Paper / Alpaca Live / Internal)
+        if settings.BROKER_PROVIDER == "alpaca" or mode == ExecutionMode.PAPER:
+            order_response = await self.alpaca_broker.submit_order(order_request)
+        elif mode == ExecutionMode.LIVE:
             order_response = await self.live_broker.submit_order(order_request)
         else:
             order_response = await self.paper_broker.submit_order(order_request)
