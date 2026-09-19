@@ -1,6 +1,6 @@
 """
 ATHENA Strategy Execution Registry
-Coordinates execution of all 16 quantitative trading strategies.
+Coordinates execution of the 5 active quantitative strategies and provides compatibility lookups.
 """
 
 from typing import Dict, List, Optional
@@ -12,19 +12,21 @@ from packages.schemas.strategy import StrategyOutput, StrategySignal, StrategyTy
 from .base import BaseStrategy
 from .strategies import (
     BreakoutStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    PullbackStrategy,
+    TrendFollowingStrategy,
+)
+from .experimental_strategies import (
     EventDrivenStrategy,
     GrowthInvestingStrategy,
     MachineLearningStrategy,
-    MeanReversionStrategy,
-    MomentumStrategy,
     NewsTradingStrategy,
     PairsTradingStrategy,
-    PullbackStrategy,
     ReinforcementLearningStrategy,
     SectorRotationStrategy,
     StatisticalArbitrageStrategy,
     SwingTradingStrategy,
-    TrendFollowingStrategy,
     ValueInvestingStrategy,
     VolatilityTradingStrategy,
 )
@@ -33,16 +35,20 @@ logger = get_logger("athena.strategy_registry")
 
 
 class StrategyRegistry:
-    """Manages the pool of 16 quantitative strategies."""
+    """Manages active and disabled strategies."""
 
     def __init__(self):
-        self.strategies: Dict[StrategyType, BaseStrategy] = {
+        # 5 Active production strategies
+        self.active_strategies: Dict[StrategyType, BaseStrategy] = {
             StrategyType.TREND_FOLLOWING: TrendFollowingStrategy(),
             StrategyType.MOMENTUM: MomentumStrategy(),
             StrategyType.MEAN_REVERSION: MeanReversionStrategy(),
-            StrategyType.SWING: SwingTradingStrategy(),
             StrategyType.BREAKOUT: BreakoutStrategy(),
             StrategyType.PULLBACK: PullbackStrategy(),
+        }
+        # 11 Inactive / experimental strategies
+        self.experimental_strategies: Dict[StrategyType, BaseStrategy] = {
+            StrategyType.SWING: SwingTradingStrategy(),
             StrategyType.PAIRS: PairsTradingStrategy(),
             StrategyType.STATISTICAL_ARBITRAGE: StatisticalArbitrageStrategy(),
             StrategyType.SECTOR_ROTATION: SectorRotationStrategy(),
@@ -55,10 +61,17 @@ class StrategyRegistry:
             StrategyType.REINFORCEMENT_LEARNING: ReinforcementLearningStrategy(),
         }
 
-    def run_all_strategies(self, context: AgentContext) -> Dict[str, StrategyOutput]:
-        """Executes all 16 strategies and returns a dictionary of signals."""
+        # Unified lookup dictionary
+        self.strategies: Dict[StrategyType, BaseStrategy] = {
+            **self.active_strategies,
+            **self.experimental_strategies,
+        }
+
+    def run_all_strategies(self, context: AgentContext, active_only: bool = True) -> Dict[str, StrategyOutput]:
+        """Executes strategies and returns a dictionary of signals."""
+        target_pool = self.active_strategies if active_only else self.strategies
         results: Dict[str, StrategyOutput] = {}
-        for st_type, strategy in self.strategies.items():
+        for st_type, strategy in target_pool.items():
             try:
                 out = strategy.generate_signal(context)
                 results[st_type.value] = out

@@ -4,22 +4,32 @@ Orchestrates raw market data fetching, DQA scoring, and persistence.
 """
 
 from typing import Dict, List, Optional
+from packages.common.config import settings
 from packages.common.exceptions import DataQualityException
 from packages.event_bus.bus import event_bus
 from packages.logging.logger import get_logger
 from packages.schemas.events import Event, EventType
 from packages.schemas.market import Candle, DataQualityReport, OrderBookSnapshot, Tick
 from .providers import MarketDataProvider, MockMarketDataProvider
+from .alpaca_provider import AlpacaMarketDataProvider
 from .quality import DataQualityAgent
 
 logger = get_logger("athena.data_pipeline")
+
+
+def _get_default_provider() -> MarketDataProvider:
+    mode = getattr(settings, "MARKET_DATA_MODE", "paper").lower()
+    has_alpaca = bool(settings.ALPACA_API_KEY and not settings.ALPACA_API_KEY.startswith("PK_MOCK"))
+    if (mode in ["paper", "live"]) and has_alpaca:
+        return AlpacaMarketDataProvider()
+    return MockMarketDataProvider()
 
 
 class DataPipeline:
     """End-to-end data ingestion, validation, and normalization pipeline."""
 
     def __init__(self, provider: Optional[MarketDataProvider] = None):
-        self.provider = provider or MockMarketDataProvider()
+        self.provider = provider or _get_default_provider()
         self.quality_agent = DataQualityAgent()
         self._candle_cache: Dict[str, List[Candle]] = {}
 

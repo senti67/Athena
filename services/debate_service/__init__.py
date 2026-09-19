@@ -1,5 +1,15 @@
-"""Athena Debate Service Package"""
+"""Athena Debate & Consensus Service Package"""
 
-from .engine import DebateEngine, debate_engine
+from .engine import (
+    DebateEngine,
+    debate_engine,
+    ResearchConsensusEngine,
+    research_consensus_engine,
+)
 
-__all__ = ["DebateEngine", "debate_engine"]
+__all__ = [
+    "DebateEngine",
+    "debate_engine",
+    "ResearchConsensusEngine",
+    "research_consensus_engine",
+]

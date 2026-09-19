@@ -39,7 +39,7 @@ from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
 from services.regime_service.detector import regime_detector
 from services.risk_service.engine import risk_engine
-from services.strategy_service.registry import strategy_registry
+from services.strategy_service.engine import strategy_engine
 
 # Diversified Universe across all sectors
 WATCHLIST = [
@@ -69,8 +69,8 @@ async def run_trading_session(session_num: int, session_name: str):
     2. Scans universe and executes the #1 highest-conviction setup.
     """
     print("\n" + "=" * 85)
-    print(f"  ⚡ ATHENA SESSION {session_num}/4: {session_name.upper()}")
-    print(f"  Target: Scan {len(WATCHLIST)} assets | Maximize profitability & take profit")
+    print(f"  ⚡ ATHENA V2 SESSION {session_num}/4: {session_name.upper()}")
+    print(f"  Target: Scan {len(WATCHLIST)} assets | 6 Research Agents & 5 Production Strategies")
     print("=" * 85)
 
     acct = await alpaca_broker.get_account()
@@ -108,14 +108,14 @@ async def run_trading_session(session_num: int, session_name: str):
             )
 
     # Step 2: Check Buying Power Reserve Floor ($200,000)
-    if live_bp <= settings.MIN_BUYING_POWER_RESERVE:
+    if live_bp <= settings.MIN_BUYING_POWER_RESERVE and live_nav > settings.MIN_BUYING_POWER_RESERVE:
         msg = f"Session {session_num} buy skipped: Buying power (${live_bp:,.2f}) is at or below $200,000.00 floor."
         print(f"\n[RISK GUARD] {msg}")
         return
 
-    # Check maximum active positions (max 5 simultaneous holdings)
-    if len(open_positions) >= 5:
-        print(f"\n[HOLD] Maximum portfolio holdings (5) reached. Awaiting profit-taking exit.")
+    # Check maximum active positions (max 4 simultaneous holdings)
+    if len(open_positions) >= settings.MAX_ACTIVE_POSITIONS:
+        print(f"\n[HOLD] Maximum portfolio holdings ({settings.MAX_ACTIVE_POSITIONS}) reached. Awaiting profit-taking exit.")
         return
 
     held_symbols = [p.get("symbol", "").upper() for p in open_positions]
@@ -143,7 +143,7 @@ async def run_trading_session(session_num: int, session_name: str):
                 portfolio_cash=live_cash,
             )
             agents_summary = await agent_orchestrator.run_all_agents(ctx)
-            strats = strategy_registry.run_all_strategies(ctx)
+            best_strat_setup, strats = strategy_engine.evaluate_strategies(ctx)
             debate_report = debate_engine.conduct_debate(sym, agents_summary, strats)
 
             decision = decision_engine.generate_decision(
@@ -154,6 +154,7 @@ async def run_trading_session(session_num: int, session_name: str):
                 strategy_outputs=strats,
                 debate_report=debate_report,
                 portfolio_state=portfolio_manager.get_portfolio_state(),
+                best_strategy_setup=best_strat_setup,
             )
 
             if decision.action == ActionType.BUY:
@@ -180,13 +181,13 @@ async def run_trading_session(session_num: int, session_name: str):
                 journal_service.record_entry(decision, risk_check, order_resp)
                 print(f"[SUCCESS] Session {session_num} trade dispatched! Order ID: {order_resp.order_id}")
                 await telegram_notifier.send_message(
-                    f"⚡ *ATHENA Trade Executed (Session {session_num}/4)* ⚡\n"
+                    f"⚡ *ATHENA V2 Trade Executed (Session {session_num}/4)* ⚡\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"• *Selected Asset*: `{sym}` (Rank #1 Setup)\n"
                     f"• *Signal*: 🟢 *BUY* `{decision.suggested_shares}` shares @ `${decision.current_price:,.2f}`\n"
                     f"• *Target (TP)*: `${decision.take_profit:,.2f}` (+{((decision.take_profit-decision.current_price)/decision.current_price)*100:.1f}%)\n"
                     f"• *Stop Loss (SL)*: `${decision.stop_loss:,.2f}`\n"
-                    f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (14 Agents)\n"
+                    f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (6 Research Domains & 5 Active Strategies)\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"💼 *Account BP*: `${live_bp:,.2f}` (Guaranteed >$200k Floor)"
                 )

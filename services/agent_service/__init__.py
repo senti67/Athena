@@ -7,18 +7,28 @@ from .agents import (
     TechnicalAgent,
     QuantAgent,
     FundamentalAgent,
-    SentimentAgent,
+    SentimentNewsAgent,
     MacroAgent,
     MicrostructureAgent,
+    # Legacy aliases
+    SentimentAgent,
+    ResearchAgent,
     OptionsAgent,
     CrossAssetAgent,
     PatternDiscoveryAgent,
     SimulationAgent,
-    DataQualityAgentWrapper,
     ComplianceAgent,
     CostAnalysisAgent,
-    ResearchAgent,
+    DataQualityAgent,
 )
+from .analyzers import (
+    CrossAssetAnalyzer,
+    OptionsAnalyzer,
+    PatternAnalyzer,
+    RiskSimulation,
+)
+
+DataQualityAgentWrapper = TechnicalAgent
 
 __all__ = [
     "BaseAgent",
@@ -29,15 +39,21 @@ __all__ = [
     "TechnicalAgent",
     "QuantAgent",
     "FundamentalAgent",
-    "SentimentAgent",
+    "SentimentNewsAgent",
     "MacroAgent",
     "MicrostructureAgent",
+    "SentimentAgent",
+    "ResearchAgent",
     "OptionsAgent",
     "CrossAssetAgent",
     "PatternDiscoveryAgent",
     "SimulationAgent",
+    "DataQualityAgent",
     "DataQualityAgentWrapper",
     "ComplianceAgent",
     "CostAnalysisAgent",
-    "ResearchAgent",
+    "CrossAssetAnalyzer",
+    "OptionsAnalyzer",
+    "PatternAnalyzer",
+    "RiskSimulation",
 ]

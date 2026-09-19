@@ -55,12 +55,33 @@ class Settings(BaseSettings):
         default="PAPER",
         description="Execution mode: PAPER or LIVE. Paper is default.",
     )
+    TRADING_MODE: str = Field(
+        default="paper",
+        description="Trading mode: paper, mock, or live (live requires LIVE_TRADING_ENABLED=True)",
+    )
+    MARKET_DATA_MODE: str = Field(
+        default="paper",
+        description="Market data feed mode: paper, mock, or live",
+    )
+    AGENT_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        description="Per-agent async timeout duration in seconds",
+    )
+
+    # Thresholds & Consensus Calibration
     DEFAULT_CONFIDENCE_THRESHOLD: float = 0.75
     MIN_DATA_QUALITY_SCORE: float = 0.80
+    MIN_RESEARCH_CONFIDENCE: float = 0.65
+    MIN_RESEARCH_AGREEMENT: float = 0.65
+    MIN_STRATEGY_CONFIDENCE: float = 0.65
+    MIN_RISK_REWARD_RATIO: float = 1.9
+    AGENT_WEIGHT: float = 0.50
+    STRATEGY_WEIGHT: float = 0.50
 
     # Risk Management Limits (Calibrated for institutional risk)
     MAX_DAILY_LOSS: float = 5000.00           # $5,000 max daily loss
-    MAX_POSITION_SIZE: float = 50000.00       # $50,000 max per position
+    MAX_POSITION_SIZE: float = 25000.00       # $25,000 max per position
+    MAX_ACTIVE_POSITIONS: int = 4             # Maximum concurrent active holdings
     MIN_BUYING_POWER_RESERVE: float = 200000.00 # Minimum $200k buying power lock
     MAX_PORTFOLIO_EXPOSURE: float = 1.00
     MAX_LEVERAGE: float = 1.00

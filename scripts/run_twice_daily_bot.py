@@ -37,7 +37,7 @@ from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
 from services.regime_service.detector import regime_detector
 from services.risk_service.engine import risk_engine
-from services.strategy_service.registry import strategy_registry
+from services.strategy_service.engine import strategy_engine
 
 # Comprehensive Multi-Sector Global Universe (All Major Sectors & Asset Classes)
 WATCHLIST = [
@@ -164,17 +164,18 @@ async def run_morning_session():
                 portfolio_cash=live_cash,
             )
             agents_summary = await agent_orchestrator.run_all_agents(ctx)
-            strats = strategy_registry.run_all_strategies(ctx)
+            best_strat_setup, strats = strategy_engine.evaluate_strategies(ctx)
             debate_report = debate_engine.conduct_debate(sym, agents_summary, strats)
 
             decision = decision_engine.generate_decision(
-                symbol=sym,
+                symbol=symbol,
                 feature_snapshot=features,
                 regime_state=regime,
                 agent_summary=agents_summary,
                 strategy_outputs=strats,
                 debate_report=debate_report,
                 portfolio_state=portfolio_manager.get_portfolio_state(),
+                best_strategy_setup=best_strat_setup,
             )
 
             if decision.action == ActionType.BUY:

@@ -79,13 +79,22 @@ class RiskEngine:
         # 2. VALIDATION STATUS CHECK
         if decision.validation_status != "VALIDATED" or decision.action == ActionType.HOLD:
             approved = False
-            veto_reason = "Decision not in VALIDATED state or is HOLD."
+            veto_reason = veto_reason or f"Decision not in VALIDATED state ({decision.validation_status}) or is HOLD."
+            violations.append(
+                RiskViolation(
+                    rule_name="UNVALIDATED_DECISION",
+                    limit_value=1.0,
+                    current_or_projected_value=0.0,
+                    message=veto_reason,
+                    severity="HIGH",
+                )
+            )
 
         # 3. DATA QUALITY SCORE CHECK
         if data_quality_score < self.limits.min_data_quality_score:
             approved = False
             msg = f"Data quality score ({data_quality_score:.2f}) below institutional threshold ({self.limits.min_data_quality_score:.2f})."
-            veto_reason = msg
+            veto_reason = veto_reason or msg
             violations.append(
                 RiskViolation(
                     rule_name="DATA_QUALITY_MINIMUM",
@@ -101,7 +110,7 @@ class RiskEngine:
         if daily_loss >= self.limits.max_daily_loss:
             approved = False
             msg = f"Daily portfolio loss (${daily_loss:,.2f}) breached limit (${self.limits.max_daily_loss:,.2f})."
-            veto_reason = msg
+            veto_reason = veto_reason or msg
             violations.append(
                 RiskViolation(
                     rule_name="MAX_DAILY_LOSS",
@@ -118,7 +127,7 @@ class RiskEngine:
             if existing.shares > 0:
                 approved = False
                 msg = f"Position in {decision.symbol} already active ({existing.shares:.0f} shares). Re-buying blocked to prevent over-concentration."
-                veto_reason = msg
+                veto_reason = veto_reason or msg
                 violations.append(
                     RiskViolation(
                         rule_name="DUPLICATE_POSITION_LOCK",
@@ -130,14 +139,14 @@ class RiskEngine:
                 )
 
         # 6. MAXIMUM SIMULTANEOUS ACTIVE POSITIONS CAP (Max 4 holdings)
-        if decision.action == ActionType.BUY and len(portfolio_state.positions) >= 4 and decision.symbol not in portfolio_state.positions:
+        if decision.action == ActionType.BUY and len(portfolio_state.positions) >= settings.MAX_ACTIVE_POSITIONS and decision.symbol not in portfolio_state.positions:
             approved = False
-            msg = f"Maximum simultaneous portfolio positions limit (4) reached. Awaiting profit-taking exit on active holdings before opening new trades."
-            veto_reason = msg
+            msg = f"Maximum simultaneous portfolio positions limit ({settings.MAX_ACTIVE_POSITIONS}) reached. Awaiting profit-taking exit on active holdings before opening new trades."
+            veto_reason = veto_reason or msg
             violations.append(
                 RiskViolation(
                     rule_name="MAX_PORTFOLIO_CONCURRENT_POSITIONS",
-                    limit_value=4.0,
+                    limit_value=float(settings.MAX_ACTIVE_POSITIONS),
                     current_or_projected_value=len(portfolio_state.positions) + 1.0,
                     message=msg,
                     severity="HIGH",
@@ -159,7 +168,7 @@ class RiskEngine:
         if projected_asset_weight > self.limits.max_single_asset_exposure:
             approved = False
             msg = f"Projected position weight ({projected_asset_weight*100:.1f}%) exceeds single asset cap ({self.limits.max_single_asset_exposure*100:.1f}%)."
-            veto_reason = msg
+            veto_reason = veto_reason or msg
             violations.append(
                 RiskViolation(
                     rule_name="MAX_SINGLE_ASSET_EXPOSURE",
@@ -175,7 +184,7 @@ class RiskEngine:
             if proposed_dollar_value > portfolio_state.cash:
                 approved = False
                 msg = f"Insufficient cash buying power (${portfolio_state.cash:,.2f}) for proposed order (${proposed_dollar_value:,.2f})."
-                veto_reason = msg
+                veto_reason = veto_reason or msg
                 violations.append(
                     RiskViolation(
                         rule_name="INSUFFICIENT_BUYING_POWER",
@@ -187,8 +196,8 @@ class RiskEngine:
                 )
             elif (portfolio_state.cash - proposed_dollar_value) < self.limits.min_buying_power_reserve and portfolio_state.nav > self.limits.min_buying_power_reserve:
                 approved = False
-                msg = f"Mandatory buying power safety reserve floor (${self.limits.min_buying_power_reserve:,.2f}) reached. New purchases locked to guarantee at least $200,000.00 buying power."
-                veto_reason = msg
+                msg = f"Mandatory buying power safety reserve floor (${self.limits.min_buying_power_reserve:,.2f}) reached. New purchases locked to guarantee at least ${self.limits.min_buying_power_reserve:,.2f} buying power."
+                veto_reason = veto_reason or msg
                 violations.append(
                     RiskViolation(
                         rule_name="MIN_BUYING_POWER_RESERVE_FLOOR",
@@ -203,7 +212,7 @@ class RiskEngine:
         if decision.action == ActionType.BUY and decision.risk_reward_ratio < self.limits.min_risk_reward_ratio:
             approved = False
             msg = f"Reward-to-risk ratio ({decision.risk_reward_ratio:.2f}) below institutional requirement ({self.limits.min_risk_reward_ratio:.2f})."
-            veto_reason = msg
+            veto_reason = veto_reason or msg
             violations.append(
                 RiskViolation(
                     rule_name="MIN_REWARD_RISK_RATIO",

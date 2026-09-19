@@ -1,5 +1,5 @@
 """
-ATHENA Dialectical Debate Engine Schemas
+ATHENA Dialectical Debate & Research Consensus Schemas
 """
 
 from datetime import datetime
@@ -20,7 +20,7 @@ class DebateReport(BaseModel):
     symbol: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     agreement_score: float = Field(
-        ge=0.0, le=1.0, description="Consensus metric across all agents"
+        ge=0.0, le=1.0, description="Consensus metric across active research domains"
     )
     conflicts: List[ConflictItem] = Field(default_factory=list)
     strongest_bullish_evidence: List[str] = Field(default_factory=list)
@@ -30,6 +30,8 @@ class DebateReport(BaseModel):
     bull_count: int = 0
     bear_count: int = 0
     neutral_count: int = 0
+    unavailable_count: int = 0
+    domain_diversity_score: float = Field(default=1.0, ge=0.0, le=1.0)
     debate_synthesis: str
-    recommended_action: str  # "BUY", "SELL", "HOLD"
+    recommended_action: str  # "BUY", "SELL", "HOLD", "UNAVAILABLE"
     consensus_confidence: float = Field(ge=0.0, le=1.0)
