@@ -82,9 +82,9 @@ class Settings(BaseSettings):
     MAX_DAILY_LOSS: float = 5000.00           # $5,000 max daily loss
     MAX_POSITION_SIZE: float = 25000.00       # $25,000 max per position
     MAX_ACTIVE_POSITIONS: int = 4             # Maximum concurrent active holdings
-    MIN_BUYING_POWER_RESERVE: float = 200000.00 # Minimum $200k buying power lock
-    MAX_PORTFOLIO_EXPOSURE: float = 1.00
-    MAX_LEVERAGE: float = 1.00
+    MIN_BUYING_POWER_RESERVE: float = 0.00    # Zero reserve floor (unrestricted buying power)
+    MAX_PORTFOLIO_EXPOSURE: float = 4.00      # Uncapped / full margin capacity
+    MAX_LEVERAGE: float = 4.00                # Up to 4x Alpaca intraday / 2x overnight margin
     MAX_SECTOR_CONCENTRATION: float = 0.30
     MAX_SINGLE_ASSET_EXPOSURE: float = 0.20
     MAX_DRAWDOWN_LIMIT: float = 0.15

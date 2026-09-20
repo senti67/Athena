@@ -1,7 +1,7 @@
 """
 ATHENA Independent Risk Management VETO Layer (Production Hard Bounds)
 Enforces absolute veto authority, single position limits, duplicate position locks,
-maximum simultaneous holding caps, and mandatory cash reserve floors.
+maximum simultaneous holding caps, and cash constraints.
 """
 
 import uuid
@@ -55,12 +55,14 @@ class RiskEngine:
         decision: TradingDecision,
         portfolio_state: PortfolioState,
         data_quality_score: float = 1.0,
+        pending_sell_symbols: Optional[List[str]] = None,
     ) -> RiskCheckResult:
         check_id = str(uuid.uuid4())
         violations: List[RiskViolation] = []
         warnings: List[str] = []
         approved = True
         veto_reason = None
+        pending_sells = set(pending_sell_symbols or [])
 
         # 1. EMERGENCY KILL SWITCH CHECK
         if self.kill_switch_active:
@@ -124,7 +126,7 @@ class RiskEngine:
         # 5. DUPLICATE POSITION LOCK (Anti-Overtrading Guard)
         if decision.action == ActionType.BUY and decision.symbol in portfolio_state.positions:
             existing = portfolio_state.positions[decision.symbol]
-            if existing.shares > 0:
+            if existing.shares > 0 and decision.symbol not in pending_sells:
                 approved = False
                 msg = f"Position in {decision.symbol} already active ({existing.shares:.0f} shares). Re-buying blocked to prevent over-concentration."
                 veto_reason = veto_reason or msg
@@ -139,7 +141,8 @@ class RiskEngine:
                 )
 
         # 6. MAXIMUM SIMULTANEOUS ACTIVE POSITIONS CAP (Max 4 holdings)
-        if decision.action == ActionType.BUY and len(portfolio_state.positions) >= settings.MAX_ACTIVE_POSITIONS and decision.symbol not in portfolio_state.positions:
+        effective_positions = [s for s in portfolio_state.positions.keys() if s not in pending_sells]
+        if decision.action == ActionType.BUY and len(effective_positions) >= settings.MAX_ACTIVE_POSITIONS and decision.symbol not in effective_positions:
             approved = False
             msg = f"Maximum simultaneous portfolio positions limit ({settings.MAX_ACTIVE_POSITIONS}) reached. Awaiting profit-taking exit on active holdings before opening new trades."
             veto_reason = veto_reason or msg
@@ -147,7 +150,7 @@ class RiskEngine:
                 RiskViolation(
                     rule_name="MAX_PORTFOLIO_CONCURRENT_POSITIONS",
                     limit_value=float(settings.MAX_ACTIVE_POSITIONS),
-                    current_or_projected_value=len(portfolio_state.positions) + 1.0,
+                    current_or_projected_value=len(effective_positions) + 1.0,
                     message=msg,
                     severity="HIGH",
                 )
@@ -163,23 +166,32 @@ class RiskEngine:
             decision.suggested_shares = max_allowed_shares
             proposed_dollar_value = max_allowed_shares * decision.current_price
 
-        # 8. SINGLE ASSET EXPOSURE (Cap at 15% NAV)
+        # 8. SINGLE ASSET EXPOSURE (Cap at single asset NAV limit)
+        max_allowed_nav_dollars = portfolio_state.nav * self.limits.max_single_asset_exposure
         projected_asset_weight = proposed_dollar_value / max(1.0, portfolio_state.nav)
-        if projected_asset_weight > self.limits.max_single_asset_exposure:
-            approved = False
-            msg = f"Projected position weight ({projected_asset_weight*100:.1f}%) exceeds single asset cap ({self.limits.max_single_asset_exposure*100:.1f}%)."
-            veto_reason = veto_reason or msg
-            violations.append(
-                RiskViolation(
-                    rule_name="MAX_SINGLE_ASSET_EXPOSURE",
-                    limit_value=self.limits.max_single_asset_exposure,
-                    current_or_projected_value=projected_asset_weight,
-                    message=msg,
-                    severity="CRITICAL",
+        if proposed_dollar_value > max_allowed_nav_dollars:
+            max_nav_shares = int(max_allowed_nav_dollars / max(decision.current_price, 1.0))
+            if max_nav_shares > 0:
+                warnings.append(
+                    f"Position scaled down from {decision.suggested_shares} to {max_nav_shares} shares to satisfy {self.limits.max_single_asset_exposure*100:.0f}% NAV limit."
                 )
-            )
+                decision.suggested_shares = max_nav_shares
+                proposed_dollar_value = max_nav_shares * decision.current_price
+            else:
+                approved = False
+                msg = f"Projected position weight ({projected_asset_weight*100:.1f}%) exceeds single asset cap ({self.limits.max_single_asset_exposure*100:.1f}%)."
+                veto_reason = veto_reason or msg
+                violations.append(
+                    RiskViolation(
+                        rule_name="MAX_SINGLE_ASSET_EXPOSURE",
+                        limit_value=self.limits.max_single_asset_exposure,
+                        current_or_projected_value=projected_asset_weight,
+                        message=msg,
+                        severity="CRITICAL",
+                    )
+                )
 
-        # 9. CASH AVAILABILITY & MANDATORY $200,000 MINIMUM BUYING POWER RESERVE FLOOR
+        # 9. CASH AVAILABILITY & BUYING POWER RESERVE FLOOR
         if decision.action == ActionType.BUY:
             if proposed_dollar_value > portfolio_state.cash:
                 approved = False
@@ -194,9 +206,13 @@ class RiskEngine:
                         severity="CRITICAL",
                     )
                 )
-            elif (portfolio_state.cash - proposed_dollar_value) < self.limits.min_buying_power_reserve and portfolio_state.nav > self.limits.min_buying_power_reserve:
+            elif (
+                self.limits.min_buying_power_reserve > 0
+                and (portfolio_state.cash - proposed_dollar_value) < self.limits.min_buying_power_reserve
+                and portfolio_state.nav > self.limits.min_buying_power_reserve
+            ):
                 approved = False
-                msg = f"Mandatory buying power safety reserve floor (${self.limits.min_buying_power_reserve:,.2f}) reached. New purchases locked to guarantee at least ${self.limits.min_buying_power_reserve:,.2f} buying power."
+                msg = f"Mandatory buying power safety reserve floor (${self.limits.min_buying_power_reserve:,.2f}) reached."
                 veto_reason = veto_reason or msg
                 violations.append(
                     RiskViolation(

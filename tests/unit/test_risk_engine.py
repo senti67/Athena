@@ -66,8 +66,10 @@ def test_kill_switch_blocks_all_trading():
 
 
 def test_buying_power_reserve_floor():
-    """Verifies that the buying power reserve floor is strictly enforced."""
-    engine = RiskEngine()
+    """Verifies that the buying power reserve floor is strictly enforced when configured."""
+    from packages.schemas.risk import RiskLimits
+    custom_limits = RiskLimits(min_buying_power_reserve=200000.0)
+    engine = RiskEngine(custom_limits=custom_limits)
     # Large account with cash above floor
     state = PortfolioState(nav=250000.0, cash=210000.0)
     # Order worth $20,000 -> would leave $190,000 cash (< $200k floor)

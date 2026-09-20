@@ -39,7 +39,7 @@ async def run_master_schedule():
     print("  • Schedule: 4 Times Per Day (Open | Mid-Morning | Afternoon | Power Hour)")
     print("  • Health Checks: Every 2 Hours to Telegram (@AthenaAnalysis_bot)")
     print("  • Market Digest: Every Evening at 8:00 PM")
-    print(f"  • Hard Margin Guard: Minimum ${settings.MIN_BUYING_POWER_RESERVE:,.2f} Buying Power Floor")
+    print("  • Hard Risk Guard: Dynamic ATR Sizing & Portfolio Risk Management")
     print("  Press Ctrl + C anytime to pause.")
     print("=" * 85)
 
@@ -51,7 +51,7 @@ async def run_master_schedule():
         "• *Profit Taking*: Automatic on +3.0%+ gain expansion\n"
         "• *Intraday Updates*: Every 2 hours holding progress card\n"
         "• *Daily Recap*: 8:00 PM Market Intelligence Digest\n"
-        "• *Safety Floor*: `$200,000.00 Minimum Buying Power Guaranteed`\n\n"
+        "• *Safety*: `Dynamic ATR Sizing & Real-time Risk Veto`\n\n"
         "_Starting initial tactical scan now..._"
     )
 

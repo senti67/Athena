@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from packages.common.config import settings
 from packages.schemas.agent import AgentContext
 from packages.schemas.decision import ActionType
-from packages.schemas.order import ExecutionMode
+from packages.schemas.order import ExecutionMode, OrderRequest, OrderSide, OrderType
 from services.agent_service.orchestrator import agent_orchestrator
 from services.data_service.pipeline import data_pipeline
 from services.debate_service.engine import debate_engine
@@ -84,18 +84,37 @@ async def run_trading_session(session_num: int, session_name: str):
     print(f"\n[Account State] NAV: ${live_nav:,.2f} | Cash: ${live_cash:,.2f} | Buying Power: ${live_bp:,.2f} | Holdings: {len(open_positions)}")
 
     # Step 1: Check Open Positions for Profit Taking (+3.0%+) or Stop Loss
+    closed_any = False
+    queued_sell_symbols = {o.get("symbol", "").upper() for o in open_orders if o.get("side") == "sell"}
     for pos in open_positions:
         sym = pos.get("symbol")
+        if sym.upper() in queued_sell_symbols:
+            continue
         qty = float(pos.get("qty", 0))
         entry = float(pos.get("avg_entry_price", 0))
         cur = float(pos.get("current_price", entry))
         pnl_pct = float(pos.get("unrealized_plpc", 0)) * 100
         pnl_val = float(pos.get("unrealized_pl", 0))
 
-        # Take profit if >= +3.0% gain or trailing target expansion
+        # Take profit if >= +3.0% gain or stop loss if <= -2.5%
         if pnl_pct >= 3.0 or pnl_pct <= -2.5:
             action_name = "TAKE PROFIT" if pnl_pct > 0 else "STOP LOSS"
             print(f"\n>>> Triggering {action_name} on {sym} ({pnl_pct:+.2f}%) to lock in realized capital <<<")
+            try:
+                order_req = OrderRequest(
+                    client_order_id=f"ATHENA-EXIT-{sym}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                    symbol=sym,
+                    side=OrderSide.SELL,
+                    order_type=OrderType.MARKET,
+                    quantity=qty,
+                    execution_mode=ExecutionMode.PAPER,
+                )
+                await alpaca_broker.submit_order(order_req)
+                closed_any = True
+                print(f"[EXIT DISPATCHED] Market SELL order for {qty:.0f} shares of {sym} submitted to Alpaca.")
+            except Exception as ex:
+                print(f"[EXIT ERROR] Could not submit exit order for {sym}: {ex}")
+
             await telegram_notifier.send_message(
                 f"💰 *ATHENA Profit-Taking / Exit Executed* 💰\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -107,14 +126,24 @@ async def run_trading_session(session_num: int, session_name: str):
                 f"💵 _Capital recycled into cash balance._"
             )
 
+    if closed_any:
+        await asyncio.sleep(1.0)
+        open_positions = await alpaca_broker.get_positions()
+        portfolio_manager.sync_from_alpaca(acct, open_positions)
+        print(f"[Positions Refreshed] Active holdings remaining: {len(open_positions)}")
+
     # Step 2: Check Buying Power Reserve Floor ($200,000)
     if live_bp <= settings.MIN_BUYING_POWER_RESERVE and live_nav > settings.MIN_BUYING_POWER_RESERVE:
         msg = f"Session {session_num} buy skipped: Buying power (${live_bp:,.2f}) is at or below $200,000.00 floor."
         print(f"\n[RISK GUARD] {msg}")
         return
 
-    # Check maximum active positions (max 4 simultaneous holdings)
-    if len(open_positions) >= settings.MAX_ACTIVE_POSITIONS:
+    # Check maximum active positions (discount positions with queued sell orders)
+    open_orders = await alpaca_broker.get_open_orders()
+    selling_symbols = {o.get("symbol", "").upper() for o in open_orders if o.get("side") == "sell"}
+    active_longs = [p for p in open_positions if p.get("symbol", "").upper() not in selling_symbols]
+
+    if len(active_longs) >= settings.MAX_ACTIVE_POSITIONS:
         print(f"\n[HOLD] Maximum portfolio holdings ({settings.MAX_ACTIVE_POSITIONS}) reached. Awaiting profit-taking exit.")
         return
 
@@ -173,7 +202,7 @@ async def run_trading_session(session_num: int, session_name: str):
         print(f"Submitting 1 disciplined purchase order to Alpaca...")
 
         port_state = portfolio_manager.get_portfolio_state()
-        risk_check = risk_engine.evaluate_decision(decision, port_state)
+        risk_check = risk_engine.evaluate_decision(decision, port_state, pending_sell_symbols=list(selling_symbols))
 
         if risk_check.approved:
             order_resp = await execution_router.execute_trade(decision, risk_check, mode=ExecutionMode.PAPER)
@@ -189,7 +218,7 @@ async def run_trading_session(session_num: int, session_name: str):
                     f"• *Stop Loss (SL)*: `${decision.stop_loss:,.2f}`\n"
                     f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (6 Research Domains & 5 Active Strategies)\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"💼 *Account BP*: `${live_bp:,.2f}` (Guaranteed >$200k Floor)"
+                    f"💼 *Account BP*: `${live_bp:,.2f}`"
                 )
         else:
             print(f"[RISK VETO] {risk_check.veto_reason}")

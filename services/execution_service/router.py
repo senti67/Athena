@@ -101,10 +101,10 @@ class ExecutionRouter:
             # Alpaca margin multiplier reservation
             projected_bp = live_bp - (order_cost * 4.0)
 
-            if live_bp < settings.MIN_BUYING_POWER_RESERVE or projected_bp < settings.MIN_BUYING_POWER_RESERVE:
+            if settings.MIN_BUYING_POWER_RESERVE > 0 and (live_bp < settings.MIN_BUYING_POWER_RESERVE or projected_bp < settings.MIN_BUYING_POWER_RESERVE):
                 veto_msg = (
-                    f"Mandatory $200,000.00 Buying Power Floor active. "
-                    f"Current Alpaca BP is ${live_bp:,.2f}. Order rejected to protect $200k minimum reserve."
+                    f"Mandatory Buying Power Floor (${settings.MIN_BUYING_POWER_RESERVE:,.2f}) active. "
+                    f"Current Alpaca BP is ${live_bp:,.2f}. Order rejected to protect minimum reserve."
                 )
                 logger.warning(veto_msg)
                 await telegram_notifier.notify_risk_veto(decision.symbol, veto_msg)

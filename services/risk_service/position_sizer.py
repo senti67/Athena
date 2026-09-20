@@ -1,7 +1,7 @@
 """
 ATHENA Volatility & ATR-Aware Position Sizing Engine
 Calculates optimal share quantities constrained by ATR risk budget, portfolio NAV,
-and institutional position limits ($25,000 max size).
+and institutional position limits ($25,000 max size and 20% single-asset NAV cap).
 """
 
 import math
@@ -22,9 +22,11 @@ class PositionSizer:
         self,
         risk_per_trade_pct: float = 0.015,  # 1.5% NAV risk per trade
         max_position_size_usd: float = settings.MAX_POSITION_SIZE,  # $25,000
+        max_single_asset_exposure: float = settings.MAX_SINGLE_ASSET_EXPOSURE,  # 20% NAV
     ):
         self.risk_per_trade_pct = risk_per_trade_pct
         self.max_position_size_usd = max_position_size_usd
+        self.max_single_asset_exposure = max_single_asset_exposure
 
     def calculate_position_size(
         self,
@@ -51,15 +53,25 @@ class PositionSizer:
         # 2. Shares based on stop distance
         shares_by_risk = math.floor(risk_budget_usd / stop_distance)
 
-        # 3. Shares based on maximum position size ($25,000)
+        # 3. Shares based on maximum dollar position size ($25,000)
         shares_by_cap = math.floor(self.max_position_size_usd / current_price)
 
-        # 4. Shares based on cash availability (leaving at least $200k reserve if portfolio is large)
-        usable_cash = max(0.0, available_cash - (settings.MIN_BUYING_POWER_RESERVE if portfolio_nav > settings.MIN_BUYING_POWER_RESERVE else 0.0))
+        # 4. Shares based on single asset NAV cap (e.g. 20% of NAV)
+        shares_by_nav = math.floor((portfolio_nav * self.max_single_asset_exposure) / current_price)
+
+        # 5. Shares based on cash availability (leaving reserve only if MIN_BUYING_POWER_RESERVE > 0)
+        usable_cash = max(
+            0.0,
+            available_cash - (
+                settings.MIN_BUYING_POWER_RESERVE
+                if settings.MIN_BUYING_POWER_RESERVE > 0 and portfolio_nav > settings.MIN_BUYING_POWER_RESERVE
+                else 0.0
+            )
+        )
         shares_by_cash = math.floor(usable_cash / current_price)
 
         # Final suggested shares
-        suggested_shares = max(0, min(shares_by_risk, shares_by_cap, shares_by_cash))
+        suggested_shares = max(0, min(shares_by_risk, shares_by_cap, shares_by_nav, shares_by_cash))
         notional_usd = suggested_shares * current_price
 
         return {
@@ -69,6 +81,7 @@ class PositionSizer:
             "stop_distance": round(stop_distance, 2),
             "shares_by_risk": int(shares_by_risk),
             "shares_by_cap": int(shares_by_cap),
+            "shares_by_nav": int(shares_by_nav),
             "shares_by_cash": int(shares_by_cash),
         }
 
