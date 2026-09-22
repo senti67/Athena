@@ -30,7 +30,7 @@ class FinnhubMarketDataProvider(MockMarketDataProvider):
         base_url: Optional[str] = None,
     ):
         super().__init__()
-        self.api_key = api_key or settings.FINNHUB_API_KEY or ""
+        self.api_key = api_key if api_key is not None else (settings.FINNHUB_API_KEY or "")
         self.base_url = (base_url or settings.FINNHUB_BASE_URL or "https://finnhub.io/api/v1").rstrip("/")
         self.headers = {
             "X-Finnhub-Token": self.api_key,
