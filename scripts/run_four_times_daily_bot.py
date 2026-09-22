@@ -165,11 +165,16 @@ async def run_trading_session(session_num: int, session_name: str):
 
             features = feature_pipeline.compute_features(sym, candles)
             regime = regime_detector.detect_regime(features)
+            fundamentals = await data_pipeline.get_fundamental_metrics(sym)
+            market_news = await data_pipeline.get_company_news(sym, limit=5)
+
             ctx = AgentContext(
                 symbol=sym,
                 feature_snapshot=features,
                 regime_state=regime,
                 portfolio_cash=live_cash,
+                fundamental_metrics=fundamentals,
+                market_news=market_news,
             )
             agents_summary = await agent_orchestrator.run_all_agents(ctx)
             best_strat_setup, strats = strategy_engine.evaluate_strategies(ctx)

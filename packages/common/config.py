@@ -68,6 +68,20 @@ class Settings(BaseSettings):
         description="Per-agent async timeout duration in seconds",
     )
 
+    # Finnhub API Configuration
+    FINNHUB_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Finnhub Stock Market & Fundamentals API Key",
+    )
+    FINNHUB_BASE_URL: str = Field(
+        default="https://finnhub.io/api/v1",
+        description="Finnhub REST API Base URL",
+    )
+    MARKET_DATA_PROVIDER: str = Field(
+        default="alpaca",
+        description="Primary market data provider: alpaca, finnhub, or mock",
+    )
+
     # Thresholds & Consensus Calibration
     DEFAULT_CONFIDENCE_THRESHOLD: float = 0.75
     MIN_DATA_QUALITY_SCORE: float = 0.80
