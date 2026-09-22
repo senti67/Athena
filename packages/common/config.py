@@ -77,6 +77,18 @@ class Settings(BaseSettings):
         default="https://finnhub.io/api/v1",
         description="Finnhub REST API Base URL",
     )
+    FINNHUB_RATE_LIMIT_PER_MINUTE: int = Field(
+        default=55,
+        description="Maximum Finnhub API requests per 60-second sliding window (Free tier max: 60/min)",
+    )
+    FINNHUB_FUNDAMENTALS_CACHE_TTL: int = Field(
+        default=3600,
+        description="TTL cache in seconds for company financial metrics (1 hour)",
+    )
+    FINNHUB_NEWS_CACHE_TTL: int = Field(
+        default=900,
+        description="TTL cache in seconds for company news and sentiment (15 mins)",
+    )
     MARKET_DATA_PROVIDER: str = Field(
         default="alpaca",
         description="Primary market data provider: alpaca, finnhub, or mock",

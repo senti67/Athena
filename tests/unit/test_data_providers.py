@@ -1,7 +1,9 @@
 """
-Unit Tests for ATHENA Market Data Providers & Finnhub Integration
+Unit Tests for ATHENA Market Data Providers, Finnhub Integration, Rate Limiting & TTL Caching
 """
 
+import asyncio
+import time
 import pytest
 import httpx
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -100,7 +102,6 @@ async def test_finnhub_provider_news_and_sentiment():
     """Tests parsing of Finnhub company news & sentiment."""
     provider = FinnhubMarketDataProvider(api_key="valid_test_key_12345")
 
-    # Mock company-news
     mock_news_resp = MagicMock()
     mock_news_resp.status_code = 200
     mock_news_resp.json.return_value = [
@@ -108,7 +109,6 @@ async def test_finnhub_provider_news_and_sentiment():
         {"headline": "Cloud Revenue Growth Outpaces Estimates", "id": 2},
     ]
 
-    # Mock news-sentiment
     mock_sent_resp = MagicMock()
     mock_sent_resp.status_code = 200
     mock_sent_resp.json.return_value = {
@@ -134,6 +134,42 @@ async def test_finnhub_provider_news_and_sentiment():
         sentiment = await provider.get_news_sentiment("NVDA")
         assert sentiment.get("sentiment_score") == 0.50
         assert sentiment.get("bullish_percentage") == 0.75
+
+
+@pytest.mark.asyncio
+async def test_finnhub_rate_limiter_throttling():
+    """Verifies that requests exceeding the sliding limit are throttled."""
+    provider = FinnhubMarketDataProvider(api_key="test_key_12345", max_requests_per_minute=3)
+    
+    # Fill up the 3 request slots
+    t0 = time.monotonic()
+    for _ in range(3):
+        await provider._acquire_rate_limit()
+    
+    assert len(provider._request_timestamps) == 3
+
+
+@pytest.mark.asyncio
+async def test_finnhub_ttl_caching():
+    """Verifies in-memory TTL caching prevents repeated HTTP queries for fundamentals and news."""
+    provider = FinnhubMarketDataProvider(api_key="test_key_12345")
+    
+    mock_metric_resp = MagicMock()
+    mock_metric_resp.status_code = 200
+    mock_metric_resp.json.return_value = {"metric": {"peTTM": 30.5}}
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_metric_resp
+        
+        # 1st call -> HTTP GET
+        m1 = await provider.get_fundamental_metrics("GOOGL")
+        assert m1.get("pe_ratio") == 30.5
+        assert mock_get.call_count == 1
+
+        # 2nd call -> Cached memory hit (0 new HTTP calls)
+        m2 = await provider.get_fundamental_metrics("GOOGL")
+        assert m2.get("pe_ratio") == 30.5
+        assert mock_get.call_count == 1
 
 
 @pytest.mark.asyncio
