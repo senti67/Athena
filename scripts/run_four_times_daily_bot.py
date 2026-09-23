@@ -37,29 +37,13 @@ from services.feature_service.pipeline import feature_pipeline
 from services.journal_service.journal import journal_service
 from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
+from packages.common.universe import GLOBAL_WATCHLIST, SECTOR_WATCHLISTS
 from services.regime_service.detector import regime_detector
 from services.risk_service.engine import risk_engine
 from services.strategy_service.engine import strategy_engine
 
-# Diversified Universe across all sectors
-WATCHLIST = [
-    # 🪙 Hard Assets & Crypto
-    "IBIT", "GLD", "SLV", "USO", "CPER",
-    # 🏥 Healthcare & Biotech
-    "LLY", "JNJ", "UNH", "ABBV",
-    # 🏦 Financials & Payments
-    "JPM", "V", "MA", "BAC",
-    # ⚡ Energy & Industrials
-    "XOM", "CVX", "CAT", "GE",
-    # 🛒 Consumer & Retail
-    "COST", "WMT", "PG", "KO",
-    # 🚀 Defense & Aerospace
-    "LMT", "BA", "RKLB",
-    # 🇮🇳 Indian Bluechips
-    "RELIANCE", "ICICIBANK", "HDFCBANK", "BHARTIARTL", "TCS", "INFY", "LT", "ITC", "TATAMOTORS",
-    # 💻 High-Growth Tech
-    "NVDA", "AAPL", "MSFT", "TSLA", "GOOGL", "AMZN", "META",
-]
+# Expanded Institutional Universe (70+ Leading Global Brands & Assets)
+WATCHLIST = GLOBAL_WATCHLIST
 
 
 async def run_trading_session(session_num: int, session_name: str):

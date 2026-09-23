@@ -35,77 +35,14 @@ from services.feature_service.pipeline import feature_pipeline
 from services.journal_service.journal import journal_service
 from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
+from packages.common.universe import GLOBAL_WATCHLIST, SECTOR_WATCHLISTS
 from services.regime_service.detector import regime_detector
 from services.risk_service.engine import risk_engine
 from services.strategy_service.engine import strategy_engine
 
-# Comprehensive Multi-Sector Global Universe (All Major Sectors & Asset Classes)
-WATCHLIST = [
-    # 🪙 Hard Assets, Commodities & Crypto
-    "IBIT",      # Bitcoin ETF Trust
-    "GLD",       # Physical Gold
-    "SLV",       # Physical Silver
-    "USO",       # Crude Oil ETF
-    "CPER",      # Copper Industrial Metals
-    
-    # 🏥 Healthcare & Pharmaceuticals
-    "LLY",       # Eli Lilly (Biotech / Pharma)
-    "JNJ",       # Johnson & Johnson (Healthcare)
-    "UNH",       # UnitedHealth Group (Health Insurance)
-    "ABBV",      # AbbVie (Pharma)
-    
-    # 🏦 Banking, Payments & Financials
-    "JPM",       # JPMorgan Chase (Banking)
-    "V",         # Visa (Global Payments)
-    "MA",        # Mastercard (Fintech)
-    "BRK.B",     # Berkshire Hathaway (Diversified Conglomerate)
-    "BAC",       # Bank of America
-    
-    # ⚡ Energy, Industrial & Machinery
-    "XOM",       # ExxonMobil (Energy / Oil)
-    "CVX",       # Chevron (Energy)
-    "CAT",       # Caterpillar (Heavy Machinery)
-    "GE",        # General Electric (Aerospace / Industrial)
-    "DE",        # Deere & Company (Agriculture)
-    
-    # 🛒 Consumer Staples, Retail & Food
-    "COST",      # Costco Wholesale
-    "WMT",       # Walmart (Global Retail)
-    "PG",        # Procter & Gamble (Consumer Staples)
-    "KO",        # Coca-Cola (Beverages)
-    "PEP",       # PepsiCo (Food & Snacks)
-    "MCD",       # McDonald's (Consumer Dining)
-    
-    # 🚀 Aerospace, Defense & Space
-    "LMT",       # Lockheed Martin (Defense / Aerospace)
-    "BA",        # Boeing (Aviation / Defense)
-    "RTX",       # RTX Corp (Aerospace Systems)
-    "RKLB",      # Rocket Lab (Commercial Space Systems)
-    
-    # 🇮🇳 Indian Market Bluechip Giants
-    "RELIANCE",   # Reliance Industries (Energy & Retail)
-    "ICICIBANK",  # ICICI Bank (Banking Lead)
-    "HDFCBANK",   # HDFC Bank (Private Banking)
-    "BHARTIARTL", # Bharti Airtel (Telecom)
-    "TCS",        # Tata Consultancy Services (IT Services)
-    "INFY",       # Infosys (Technology / Consulting)
-    "LT",         # Larsen & Toubro (Infrastructure & Engineering)
-    "ITC",        # ITC Limited (FMCG & Hotels)
-    "TATAMOTORS", # Tata Motors (EV / Auto)
-    "SBIN",       # State Bank of India
-    
-    # 💻 Technology & Broad Market Indices
-    "NVDA",      # Nvidia (Semiconductors / AI)
-    "AAPL",      # Apple (Consumer Tech)
-    "MSFT",      # Microsoft (Enterprise Cloud)
-    "TSLA",      # Tesla (Clean Energy & Auto)
-    "GOOGL",     # Alphabet (AI & Search)
-    "AMZN",      # Amazon (Cloud & E-Commerce)
-    "META",      # Meta Platforms (Social Tech)
-    "SPY",       # S&P 500 Market Benchmark
-    "QQQ",       # Nasdaq 100 Growth Benchmark
-    "IWM",       # Russell 2000 Small-Cap Index
-]
+# Expanded Institutional Universe (70+ Leading Global Brands & Assets)
+WATCHLIST = GLOBAL_WATCHLIST
+
 
 
 async def run_morning_session():

@@ -13,9 +13,13 @@ from .exceptions import (
     RegimeMismatchException,
 )
 
+from .universe import GLOBAL_WATCHLIST, SECTOR_WATCHLISTS
+
 __all__ = [
     "settings",
     "Settings",
+    "GLOBAL_WATCHLIST",
+    "SECTOR_WATCHLISTS",
     "AthenaException",
     "RiskVetoException",
     "DataQualityException",
