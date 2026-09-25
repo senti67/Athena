@@ -85,7 +85,7 @@ class FinnhubMarketDataProvider(MockMarketDataProvider):
             self._request_timestamps.append(time.monotonic())
 
     async def _get(
-        self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0
+        self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: float = 3.5
     ) -> Optional[httpx.Response]:
         """Performs a rate-limited GET request with HTTP 429 retry backoff."""
         if not self._has_valid_credentials():

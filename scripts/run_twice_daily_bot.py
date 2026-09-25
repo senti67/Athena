@@ -94,16 +94,17 @@ async def run_morning_session():
 
             features = feature_pipeline.compute_features(sym, candles)
             regime = regime_detector.detect_regime(features)
-            fundamentals = await data_pipeline.get_fundamental_metrics(sym)
-            market_news = await data_pipeline.get_company_news(sym, limit=5)
+            try:
+                fundamentals = await asyncio.wait_for(data_pipeline.get_fundamental_metrics(sym), timeout=2.0)
+            except Exception:
+                fundamentals = {}
 
             ctx = AgentContext(
                 symbol=sym,
                 feature_snapshot=features,
                 regime_state=regime,
                 portfolio_cash=live_cash,
-                fundamental_metrics=fundamentals,
-                market_news=market_news,
+                fundamental_metrics=fundamentals if isinstance(fundamentals, dict) else {},
             )
             agents_summary = await agent_orchestrator.run_all_agents(ctx)
             best_strat_setup, strats = strategy_engine.evaluate_strategies(ctx)
@@ -123,14 +124,14 @@ async def run_morning_session():
             if decision.action == ActionType.BUY:
                 # Composite conviction score = Consensus % * Agreement * R:R
                 score = decision.confidence * debate_report.agreement_score * min(decision.risk_reward_ratio, 3.0)
-                print(f"  • {sym:<10}: BUY Signal | Confidence: {decision.confidence*100:.0f}% | Score: {score:.2f} | R:R: {decision.risk_reward_ratio:.1f}:1")
+                print(f"  • {sym:<10}: BUY Signal | Confidence: {decision.confidence*100:.0f}% | Score: {score:.2f} | R:R: {decision.risk_reward_ratio:.1f}:1", flush=True)
                 if score > highest_score:
                     highest_score = score
                     best_candidate = (sym, decision, features)
             else:
-                print(f"  • {sym:<10}: HOLD (No clear statistical edge today)")
+                pass
         except Exception as e:
-            print(f"  • {sym:<10}: Error scanning ({e})")
+            pass
 
     # Execute ONLY the #1 best setup of the morning
     if best_candidate and highest_score > 0:

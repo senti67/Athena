@@ -51,7 +51,7 @@ class AlpacaMarketDataProvider(MockMarketDataProvider):
         if not self._has_valid_credentials():
             return await super().get_quotes(sym)
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             try:
                 res = await client.get(
                     f"{self.data_url}/v2/stocks/{sym}/quotes/latest",
@@ -84,7 +84,7 @@ class AlpacaMarketDataProvider(MockMarketDataProvider):
         if not self._has_valid_credentials():
             return await super().get_ohlcv(sym, timeframe, limit)
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             try:
                 # Alpaca V2 bars endpoint
                 end_dt = datetime.utcnow()
