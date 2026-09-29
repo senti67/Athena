@@ -49,17 +49,17 @@ class RiskMetrics(BaseModel):
 
 
 class RiskCheckResult(BaseModel):
-    check_id: str
+    check_id: str = Field(default="CHK-DEFAULT-001")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    decision_id: str
-    symbol: str
-    action: str
-    approved: bool
-    risk_score: float = Field(ge=0.0, le=1.0, description="Overall risk index, lower is safer")
+    decision_id: str = Field(default="DEC-DEFAULT-001")
+    symbol: str = "AAPL"
+    action: str = "BUY"
+    approved: bool = True
+    risk_score: float = Field(default=0.20, ge=0.0, le=1.0, description="Overall risk index, lower is safer")
     max_approved_shares: int = 0
     max_approved_dollar_amount: float = 0.0
+    veto_reason: Optional[str] = None
     violations: List[RiskViolation] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
-    veto_reason: Optional[str] = None
     kill_switch_triggered: bool = False
     metrics_snapshot: RiskMetrics = Field(default_factory=RiskMetrics)

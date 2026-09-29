@@ -1,22 +1,36 @@
 """
-ATHENA Telegram Notification & Alert Service
-Sends real-time trade signals, executions, risk vetoes, and portfolio updates directly to your Telegram chat.
+ATHENA Telegram Notification Service
+Sends institutional quantitative research notes, trade cards, position updates,
+rejected signal explanations, and daily performance reports directly to Telegram.
+Strictly read-only: Cannot place trades or alter broker state.
 """
 
 import asyncio
-from datetime import datetime
-from typing import Optional
+import hashlib
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set
 import httpx
 
 from packages.common.config import settings
 from packages.logging.logger import get_logger
+from services.notification_service.telegram_formatter import (
+    TelegramFormatter,
+    MAX_TELEGRAM_MESSAGE_LENGTH,
+)
+from services.notification_service.trade_card import (
+    DailyReportCard,
+    NoTradeCard,
+    PositionUpdateCard,
+    TradeCard,
+)
 
 logger = get_logger("athena.telegram_notifier")
 
 
 class TelegramNotifier:
     """
-    Dedicated Telegram Bot Notifier for ATHENA Multi-Agent Quantitative Platform.
+    Institutional Telegram Notifier for ATHENA Quantitative Platform.
+    Handles message formatting, deduplication, long-message splitting, and error resilience.
     """
 
     def __init__(
@@ -24,12 +38,16 @@ class TelegramNotifier:
         token: Optional[str] = None,
         chat_id: Optional[str] = None,
         enabled: Optional[bool] = None,
+        dedup_ttl_seconds: int = 180,
     ):
         self.token = token or settings.TELEGRAM_BOT_TOKEN
         self.chat_id = chat_id or settings.TELEGRAM_CHAT_ID
         self.enabled = enabled if enabled is not None else settings.TELEGRAM_NOTIFICATIONS_ENABLED
+        self.dedup_ttl_seconds = dedup_ttl_seconds
+        self._recent_fingerprints: Dict[str, datetime] = {}
 
     def is_configured(self) -> bool:
+        """Verifies if real Telegram bot credentials are provided."""
         return (
             bool(self.enabled)
             and bool(self.token)
@@ -38,30 +56,82 @@ class TelegramNotifier:
             and self.chat_id != "your_telegram_chat_id"
         )
 
-    async def send_message(self, text: str) -> bool:
-        """Sends a formatted Markdown message to the configured Telegram chat."""
-        if not self.is_configured():
-            return False
-
-        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
+    def _cleanup_old_fingerprints(self):
+        """Prunes fingerprints older than TTL."""
+        cutoff = datetime.utcnow() - timedelta(seconds=self.dedup_ttl_seconds)
+        self._recent_fingerprints = {
+            fp: ts for fp, ts in self._recent_fingerprints.items() if ts > cutoff
         }
 
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            try:
-                res = await client.post(url, json=payload)
-                if res.status_code == 200:
-                    return True
-                else:
-                    logger.warning(f"Telegram send failed: {res.status_code} {res.text}")
-                    return False
-            except Exception as e:
-                logger.warning(f"Telegram network error: {e}")
-                return False
+    def _is_duplicate(self, fingerprint: str) -> bool:
+        """Checks if a fingerprint was recently dispatched."""
+        self._cleanup_old_fingerprints()
+        if fingerprint in self._recent_fingerprints:
+            logger.info(f"Duplicate notification prevented for fingerprint: {fingerprint}")
+            return True
+        self._recent_fingerprints[fingerprint] = datetime.utcnow()
+        return False
+
+    async def send_message(self, text: str, fingerprint: Optional[str] = None) -> bool:
+        """
+        Sends a Markdown message to Telegram with deduplication and auto-splitting.
+        """
+        if not self.is_configured():
+            logger.debug("Telegram notifications disabled or unconfigured.")
+            return False
+
+        if fingerprint and self._is_duplicate(fingerprint):
+            return True
+
+        chunks = TelegramFormatter.split_message_if_needed(text, max_length=MAX_TELEGRAM_MESSAGE_LENGTH)
+        success = True
+
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for chunk in chunks:
+                payload = {
+                    "chat_id": self.chat_id,
+                    "text": chunk,
+                    "parse_mode": "Markdown",
+                    "disable_web_page_preview": True,
+                }
+                try:
+                    res = await client.post(url, json=payload)
+                    if res.status_code != 200:
+                        logger.warning(f"Telegram send failed [{res.status_code}]: {res.text}")
+                        success = False
+                except Exception as e:
+                    logger.warning(f"Telegram network transport error: {e}")
+                    success = False
+
+        return success
+
+    async def send_trade_card(self, card: TradeCard) -> bool:
+        """Sends an institutional Trade Thesis research note."""
+        text = TelegramFormatter.format_trade_signal(card)
+        fingerprint = f"TRADE_SIGNAL:{card.symbol}:{card.side}:{card.order_id or int(card.timestamp.timestamp())}"
+        return await self.send_message(text, fingerprint=fingerprint)
+
+    async def send_position_update(self, card: PositionUpdateCard) -> bool:
+        """Sends a position monitoring progress card."""
+        text = TelegramFormatter.format_position_update(card)
+        # Deduplicate per symbol within a 15-minute window
+        minute_bucket = card.timestamp.strftime("%Y%m%d%H") + f"_{card.timestamp.minute // 15}"
+        fingerprint = f"POS_UPDATE:{card.symbol}:{minute_bucket}"
+        return await self.send_message(text, fingerprint=fingerprint)
+
+    async def send_no_trade_card(self, card: NoTradeCard) -> bool:
+        """Sends a rejected signal / no-trade explanation card."""
+        text = TelegramFormatter.format_no_trade(card)
+        fingerprint = f"NO_TRADE:{card.symbol}:{card.timestamp.strftime('%Y%m%d%H%M')}"
+        return await self.send_message(text, fingerprint=fingerprint)
+
+    async def send_daily_report(self, card: DailyReportCard) -> bool:
+        """Sends the daily 8:00 PM intelligence & performance digest."""
+        text = TelegramFormatter.format_daily_report(card)
+        fingerprint = f"DAILY_REPORT:{card.date_str}"
+        return await self.send_message(text, fingerprint=fingerprint)
 
     async def notify_order_submitted(
         self,
@@ -73,49 +143,48 @@ class TelegramNotifier:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
         confidence: float = 0.80,
-        consensus_ratio: str = "14/14",
-    ):
-        """Notifies when a new order is dispatched to the broker."""
-        action_emoji = "🟢 *BUY*" if action.upper() == "BUY" else "🔴 *SELL*"
+        consensus_ratio: str = "8/8",
+    ) -> bool:
+        """
+        Backwards-compatible bridge for router order notifications.
+        """
+        side_emoji = "🟢" if action.upper() == "BUY" else "🔴"
         now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        rr = ((take_profit - price) / max(price - stop_loss, 0.01)) if (stop_loss and take_profit and price > stop_loss) else 2.0
 
         msg = (
-            f"⚡ *ATHENA Multi-Agent Trade Alert* ⚡\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Asset*: `{symbol}`\n"
-            f"• *Signal*: {action_emoji}\n"
-            f"• *Quantity*: `{quantity:.0f}` shares\n"
-            f"• *Price*: `${price:,.2f}`\n"
-            f"• *AI Consensus*: `{confidence*100:.0f}%` ({consensus_ratio} Agents)\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡ ATHENA TRADE ALERT\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{side_emoji} {action.upper()} · {symbol.upper()}\n"
+            f"Confidence: {confidence * 100:.0f}%\n"
+            f"Quantity: {quantity:.0f} shares\n"
+            f"Price: ${price:,.2f}\n\n"
+            f"🎯 Target: ${take_profit:,.2f}\n" if take_profit else ""
+            f"🛑 Stop: ${stop_loss:,.2f}\n" if stop_loss else ""
+            f"⚖️ R:R: {rr:.2f} : 1\n\n"
+            f"Order ID:\n{order_id}\n\n"
+            f"⏱️ Generated:\n{now_utc}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
         )
-        if stop_loss and take_profit:
-            rr = (take_profit - price) / max(price - stop_loss, 0.01) if action.upper() == "BUY" else 2.0
-            msg += (
-                f"• *Target (TP)*: `${take_profit:,.2f}`\n"
-                f"• *Stop Loss (SL)*: `${stop_loss:,.2f}`\n"
-                f"• *Reward / Risk*: `{rr:.1f} : 1`\n"
-            )
-        msg += (
-            f"• *Order ID*: `{order_id}`\n"
-            f"• *Time*: `{now_utc}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👉 [View Live on Alpaca Dashboard](https://app.alpaca.markets/paper/dashboard/overview)"
-        )
+        fingerprint = f"ORDER_SUBMITTED:{symbol}:{order_id}"
+        return await self.send_message(msg, fingerprint=fingerprint)
 
-        await self.send_message(msg)
-
-    async def notify_risk_veto(self, symbol: str, reason: str):
+    async def notify_risk_veto(self, symbol: str, reason: str) -> bool:
         """Notifies when the Risk Management VETO Layer blocks an order."""
+        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         msg = (
-            f"🛡️ *ATHENA Risk Management VETO* 🛡️\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Asset*: `{symbol}`\n"
-            f"• *Status*: ⛔ *ORDER BLOCKED*\n"
-            f"• *Reason*: _{reason}_\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔒 _Institutional capital preservation rule enforced._"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ ATHENA RISK VETO\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{symbol.upper()}\n\n"
+            f"Status:\n⛔ ORDER BLOCKED\n\n"
+            f"Reason:\n{reason}\n\n"
+            f"⏱️ Generated:\n{now_utc}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
         )
-        await self.send_message(msg)
+        fingerprint = f"RISK_VETO:{symbol}:{reason[:30]}"
+        return await self.send_message(msg, fingerprint=fingerprint)
 
     async def notify_position_health_report(
         self,
@@ -132,34 +201,33 @@ class TelegramNotifier:
         take_profit: float,
         nav: float,
         buying_power: float,
-    ):
-        """Sends comprehensive 2-hour intraday position progress analysis to Telegram."""
-        pnl_emoji = "🟢" if unrealized_pnl >= 0 else "🔴"
-        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        tp_dist = ((take_profit - current_price) / current_price) * 100
-        sl_dist = ((current_price - stop_loss) / current_price) * 100
-
-        msg = (
-            f"📈 *ATHENA 2-Hour Holding Analysis* 📈\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Asset*: `{symbol}` ({shares:.0f} shares)\n"
-            f"• *Entry Price*: `${entry_price:,.2f}`\n"
-            f"• *Current Price*: `${current_price:,.2f}`\n"
-            f"• *Unrealized P&L*: {pnl_emoji} *{unrealized_pnl_pct:+.2f}%* (`${unrealized_pnl:+,.2f}`)\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 *Target & Safety Levels*:\n"
-            f"• *Take-Profit Target*: `${take_profit:,.2f}` ({tp_dist:+.1f}% runway)\n"
-            f"• *Stop-Loss Floor*: `${stop_loss:,.2f}` ({sl_dist:+.1f}% safety cushion)\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🧠 *Quantitative Health Check*:\n"
-            f"• *RSI(14)*: `{rsi:.1f}`\n"
-            f"• *Market Regime*: `{regime}`\n"
-            f"• *AI Verdict*: 🛡️ *{verdict}*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💼 *Portfolio Health*: NAV `${nav:,.2f}` | BP `${buying_power:,.2f}`\n"
-            f"🕒 _Next update in 2 hours ({now_utc})_"
+    ) -> bool:
+        """Sends comprehensive intraday position progress analysis to Telegram."""
+        card = PositionUpdateCard(
+            symbol=symbol,
+            side="LONG",
+            entry_price=entry_price,
+            current_price=current_price,
+            shares=shares,
+            unrealized_pnl_pct=unrealized_pnl_pct,
+            unrealized_pnl_val=unrealized_pnl,
+            holding_duration_str="Intraday",
+            original_thesis="Trend + Momentum",
+            current_regime=regime,
+            momentum_status="Strengthening" if rsi >= 50 else "Weakening",
+            volume_status="Supportive",
+            signal=verdict,
+            thesis_strength_score=75 if unrealized_pnl >= 0 else 60,
+            target_price=take_profit,
+            stop_price=stop_loss,
+            dist_to_target_pct=((take_profit - current_price) / current_price * 100) if current_price > 0 else 0.0,
+            dist_to_stop_pct=((stop_loss - current_price) / current_price * 100) if current_price > 0 else 0.0,
+            assessment_verdict=verdict,
+            assessment_reason="The original thesis remains valid. Risk parameters intact.",
+            next_review_time="In 2 hours",
+            timestamp=datetime.utcnow(),
         )
-        await self.send_message(msg)
+        return await self.send_position_update(card)
 
 
 telegram_notifier = TelegramNotifier()

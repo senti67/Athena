@@ -82,3 +82,8 @@ class RegimeState(BaseModel):
     )
     metrics: RegimeMetrics = Field(default_factory=RegimeMetrics)
     ensemble_breakdown: RegimeEnsembleBreakdown = Field(default_factory=RegimeEnsembleBreakdown)
+
+
+# Compatibility aliases
+MarketRegime = MarketRegimeType
+MarketRegimeState = RegimeState

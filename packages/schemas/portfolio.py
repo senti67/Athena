@@ -53,6 +53,10 @@ class PortfolioState(BaseModel):
     total_return_pct: float = 0.0
     sector_allocations: Dict[str, float] = Field(default_factory=dict)
 
+    @property
+    def total_equity(self) -> float:
+        return self.nav
+
 
 class TargetAllocation(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)

@@ -22,6 +22,7 @@ from packages.common.config import settings
 from services.data_service.pipeline import data_pipeline
 from services.execution_service.alpaca_broker import alpaca_broker
 from services.feature_service.pipeline import feature_pipeline
+from services.notification_service.explanation_engine import ExplanationEngine
 from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
 from services.regime_service.detector import regime_detector
@@ -90,22 +91,24 @@ async def analyze_and_report_holdings():
             print(f"  • RSI(14): {rsi:.1f} | Regime: {regime.regime.value} | Verdict: {verdict}")
             print(f"  • Take-Profit Target: ${take_profit:,.2f} | Stop-Loss: ${stop_loss:,.2f}")
 
-            # Send rich Telegram Health Card
-            await telegram_notifier.notify_position_health_report(
+            # Build and send structured Telegram Position Health Card
+            card = ExplanationEngine.build_position_update_card(
                 symbol=sym,
                 shares=shares,
                 entry_price=entry_px,
                 current_price=cur_px,
-                unrealized_pnl=unrealized,
                 unrealized_pnl_pct=unrealized_pct,
-                rsi=rsi,
-                regime=regime.regime.value,
-                verdict=verdict,
+                unrealized_pnl_val=unrealized,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
-                nav=live_nav,
-                buying_power=live_bp,
+                features=features,
+                regime=regime,
+                holding_duration_str="Intraday",
+                original_thesis="Trend + Momentum",
+                verdict=verdict,
+                next_review_time="In 2 hours",
             )
+            await telegram_notifier.send_position_update(card)
             print(f"[OK] 2-Hour Progress Card sent to Telegram for {sym}!")
         except Exception as e:
             print(f"[!] Error analyzing {sym}: {e}")

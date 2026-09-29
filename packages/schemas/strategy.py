@@ -47,6 +47,7 @@ class StrategyOutput(BaseModel):
     symbol: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     signal: StrategySignal = Field(alias="action", default=StrategySignal.HOLD)
+    score: float = Field(default=0.0, description="Strategy directional score [-1.0 to 1.0]")
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
     expected_edge: float = Field(default=0.0, description="Estimated directional edge (expected return)")
     expected_value: float = Field(default=0.0, description="P(win)*AvgWin - P(loss)*AvgLoss")

@@ -147,3 +147,7 @@ class AgentRunSummary(BaseModel):
     aggregate_confidence: float = 0.0
     domain_diversity_score: float = 0.0
     qualitative_summary: str = ""
+
+
+# Compatibility aliases
+AgentOrchestratorSummary = AgentRunSummary

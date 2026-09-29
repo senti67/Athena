@@ -108,3 +108,64 @@ class FeatureSnapshot(BaseModel):
     cross_asset: CrossAssetFeatures = Field(default_factory=CrossAssetFeatures)
     nlp: NLPFeatures = Field(default_factory=NLPFeatures)
     raw_feature_map: Dict[str, float] = Field(default_factory=dict)
+    data_quality_score: float = 1.0
+
+    @property
+    def rsi_14(self) -> float:
+        return self.technical.rsi_14
+
+    @property
+    def adx(self) -> float:
+        return self.technical.adx_14
+
+    @property
+    def ema_8(self) -> float:
+        return self.technical.ema_9
+
+    @property
+    def ema_20(self) -> float:
+        return self.technical.sma_20
+
+    @property
+    def ema_21(self) -> float:
+        return self.technical.ema_21
+
+    @property
+    def ema_50(self) -> float:
+        return self.technical.ema_50
+
+    @property
+    def ema_200(self) -> float:
+        return self.technical.ema_200
+
+    @property
+    def volume_ratio(self) -> float:
+        return self.technical.volume_ratio
+
+    @property
+    def return_20d(self) -> float:
+        return self.statistical.returns_20d
+
+    @property
+    def realized_volatility_20d(self) -> float:
+        return self.volatility.realized_vol_20d
+
+    @property
+    def atr_pct(self) -> float:
+        return self.volatility.atr_normalized
+
+    @property
+    def macd_hist(self) -> float:
+        return self.technical.macd_hist
+
+    @property
+    def upper_band(self) -> float:
+        return self.technical.bb_upper
+
+    @property
+    def lower_band(self) -> float:
+        return self.technical.bb_lower
+
+
+# Compatibility alias
+TechnicalIndicators = TechnicalFeatures

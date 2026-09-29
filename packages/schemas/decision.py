@@ -24,7 +24,7 @@ class AlternativeScenario(BaseModel):
 
 
 class TradingDecision(BaseModel):
-    id: str = Field(description="Unique Decision UUID")
+    id: str = Field(default="DEC-DEFAULT-001", description="Unique Decision UUID")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     symbol: str
     action: ActionType
@@ -37,8 +37,8 @@ class TradingDecision(BaseModel):
         default=0.0, ge=0.0, le=1.0, description="Fraction of portfolio capital"
     )
     suggested_shares: int = 0
-    stop_loss: float
-    take_profit: float
+    stop_loss: float = 0.0
+    take_profit: float = 0.0
     expected_edge: float = Field(default=0.0, description="Estimated directional edge (expected return)")
     expected_value: float = Field(default=0.0, description="P(win)*AvgWin - P(loss)*AvgLoss")
     expected_return_pct: float = 0.0
@@ -54,10 +54,20 @@ class TradingDecision(BaseModel):
     debate_agreement_score: float = 0.80
     supporting_agents: List[str] = Field(default_factory=list)
     opposing_agents: List[str] = Field(default_factory=list)
-    reasoning: str
+    reasoning: str = Field(default="", alias="reason")
     alternative_scenarios: List[AlternativeScenario] = Field(default_factory=list)
     model_versions: Dict[str, str] = Field(default_factory=dict)
-    prompt_versions: Dict[str, str] = Field(default_factory=dict)
     validation_status: str = "VALIDATED"  # VALIDATED or REJECTED
     validation_reasons: List[str] = Field(default_factory=list)
     execution_mode: str = "PAPER"
+
+    class Config:
+        populate_by_name = True
+
+    @property
+    def reason(self) -> str:
+        return self.reasoning
+
+
+# Compatibility alias
+DecisionProposal = TradingDecision

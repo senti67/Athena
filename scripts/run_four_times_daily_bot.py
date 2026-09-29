@@ -35,6 +35,7 @@ from services.execution_service.alpaca_broker import alpaca_broker
 from services.execution_service.router import execution_router
 from services.feature_service.pipeline import feature_pipeline
 from services.journal_service.journal import journal_service
+from services.notification_service.explanation_engine import ExplanationEngine
 from services.notification_service.telegram_notifier import telegram_notifier
 from services.portfolio_service.optimizer import portfolio_manager
 from packages.common.universe import GLOBAL_WATCHLIST, SECTOR_WATCHLISTS
@@ -181,7 +182,7 @@ async def run_trading_session(session_num: int, session_name: str):
                 print(f"  • {sym:<10}: BUY Signal | Confidence: {decision.confidence*100:.0f}% | Score: {score:.2f} | R:R: {decision.risk_reward_ratio:.1f}:1", flush=True)
                 if score > highest_score:
                     highest_score = score
-                    best_pick = (sym, decision, features)
+                    best_pick = (sym, decision, features, regime, strats, agents_summary)
             else:
                 # Optionally print high-conviction holds or scan progress
                 pass
@@ -190,7 +191,7 @@ async def run_trading_session(session_num: int, session_name: str):
 
     # Execute the single #1 best setup for this session
     if best_pick and highest_score > 0:
-        sym, decision, features = best_pick
+        sym, decision, features, regime, strats, agents_summary = best_pick
         print(f"\n🏆 TOP PICK FOR SESSION {session_num}: {sym} (Score: {highest_score:.2f})")
         print(f"Submitting 1 disciplined purchase order to Alpaca...")
 
@@ -202,19 +203,22 @@ async def run_trading_session(session_num: int, session_name: str):
             if order_resp:
                 journal_service.record_entry(decision, risk_check, order_resp)
                 print(f"[SUCCESS] Session {session_num} trade dispatched! Order ID: {order_resp.order_id}")
-                await telegram_notifier.send_message(
-                    f"⚡ *ATHENA V2 Trade Executed (Session {session_num}/4)* ⚡\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"• *Selected Asset*: `{sym}` (Rank #1 Setup)\n"
-                    f"• *Signal*: 🟢 *BUY* `{decision.suggested_shares}` shares @ `${decision.current_price:,.2f}`\n"
-                    f"• *Target (TP)*: `${decision.take_profit:,.2f}` (+{((decision.take_profit-decision.current_price)/decision.current_price)*100:.1f}%)\n"
-                    f"• *Stop Loss (SL)*: `${decision.stop_loss:,.2f}`\n"
-                    f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (8 Analytical Modules & 6 Active Strategies)\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"💼 *Account BP*: `${live_bp:,.2f}`"
+                
+                # Build institutional TradeCard and dispatch Telegram Research Note
+                trade_card = ExplanationEngine.build_trade_card(
+                    decision=decision,
+                    features=features,
+                    regime=regime,
+                    strategy_outputs=strats,
+                    agent_summary=agents_summary,
+                    risk_check=risk_check,
+                    portfolio_state=port_state,
+                    order_response=order_resp,
                 )
+                await telegram_notifier.send_trade_card(trade_card)
         else:
             print(f"[RISK VETO] {risk_check.veto_reason}")
+            await telegram_notifier.notify_risk_veto(sym, risk_check.veto_reason)
     else:
         print(f"\n[PATIENT HOLD] No assets met high-conviction threshold in Session {session_num}. Cash preserved.")
 
