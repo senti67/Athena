@@ -1,6 +1,6 @@
 """
 ATHENA Strategy Execution Registry
-Coordinates execution of the 5 active quantitative strategies and provides compatibility lookups.
+Coordinates execution of the 6 active quantitative strategies and provides compatibility lookups.
 """
 
 from typing import Dict, List, Optional
@@ -16,6 +16,7 @@ from .strategies import (
     MomentumStrategy,
     PullbackStrategy,
     TrendFollowingStrategy,
+    VolatilitySwingStrategy,
 )
 from .experimental_strategies import (
     EventDrivenStrategy,
@@ -38,15 +39,16 @@ class StrategyRegistry:
     """Manages active and disabled strategies."""
 
     def __init__(self):
-        # 5 Active production strategies
+        # 6 Active production strategies
         self.active_strategies: Dict[StrategyType, BaseStrategy] = {
             StrategyType.TREND_FOLLOWING: TrendFollowingStrategy(),
             StrategyType.MOMENTUM: MomentumStrategy(),
             StrategyType.MEAN_REVERSION: MeanReversionStrategy(),
             StrategyType.BREAKOUT: BreakoutStrategy(),
             StrategyType.PULLBACK: PullbackStrategy(),
+            StrategyType.VOLATILITY_SWING: VolatilitySwingStrategy(),
         }
-        # 11 Inactive / experimental strategies
+        # 11 Inactive / experimental / placeholder strategies
         self.experimental_strategies: Dict[StrategyType, BaseStrategy] = {
             StrategyType.SWING: SwingTradingStrategy(),
             StrategyType.PAIRS: PairsTradingStrategy(),

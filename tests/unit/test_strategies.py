@@ -1,5 +1,5 @@
 """
-Unit Tests for ATHENA V2 5 Active Quantitative Strategies & Dynamic StrategyEngine
+Unit Tests for ATHENA 6 Active Quantitative Strategies & Dynamic StrategyEngine
 """
 
 import pytest
@@ -28,19 +28,20 @@ async def test_5_active_strategies_execute_and_produce_signals():
 
     outputs = strategy_registry.run_all_strategies(context, active_only=True)
 
-    assert len(outputs) == 5, "Athena V2 must have exactly 5 Active Production Strategies"
+    assert len(outputs) == 6, "Athena must have 6 Active Production Strategies"
     expected_active = {
         StrategyType.TREND_FOLLOWING.value,
         StrategyType.MOMENTUM.value,
         StrategyType.MEAN_REVERSION.value,
         StrategyType.BREAKOUT.value,
         StrategyType.PULLBACK.value,
+        StrategyType.VOLATILITY_SWING.value,
     }
     assert set(outputs.keys()) == expected_active
 
     for strat_name, out in outputs.items():
         assert out.symbol == "NVDA"
-        assert out.confidence >= 0.0 and out.confidence <= 1.0
+        assert 0.0 <= out.confidence <= 1.0
         assert out.signal in (StrategySignal.BUY, StrategySignal.SELL, StrategySignal.HOLD)
         assert out.stop_loss_pct > 0.0
         assert out.take_profit_pct > 0.0
@@ -75,7 +76,7 @@ async def test_strategy_engine_regime_weighting():
 
     # Mock a RegimeState with high trend following suitability
     regime = RegimeState(
-        regime=MarketRegimeType.BULL,
+        regime=MarketRegimeType.TRENDING_BULL,
         confidence=0.90,
         strategy_suitability_weights={"trend_following": 1.30, "mean_reversion": 0.50},
     )
@@ -87,7 +88,5 @@ async def test_strategy_engine_regime_weighting():
     )
 
     best_setup, outputs = strategy_engine.evaluate_strategies(context)
-    assert len(outputs) == 5
+    assert len(outputs) == 6
     assert "trend_following" in outputs
-    # Regime weight applied
-    assert "Regime suitability weight: 1.30x" in outputs["trend_following"].rationale

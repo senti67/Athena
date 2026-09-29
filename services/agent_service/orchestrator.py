@@ -1,12 +1,14 @@
 """
-ATHENA V2 Agent Orchestrator
-Coordinates concurrent execution of the 6 Core Directional Research Agents:
-1. TechnicalAgent
-2. QuantAgent
-3. FundamentalAgent
-4. SentimentNewsAgent
-5. MacroAgent
-6. MicrostructureAgent
+ATHENA Quantitative Module Orchestrator
+Coordinates concurrent execution of the orthogonal analytical research modules:
+1. TechnicalTrendModule
+2. MomentumModule
+3. MeanReversionModule
+4. VolatilityRiskModule
+5. FundamentalModule
+6. SentimentNewsModule
+7. MarketRegimeModule
+8. CrossAssetMacroModule
 """
 
 import asyncio
@@ -23,12 +25,15 @@ from packages.schemas.agent import (
 )
 from packages.schemas.events import Event, EventType
 from .agents import (
-    TechnicalAgent,
-    QuantAgent,
-    FundamentalAgent,
-    SentimentNewsAgent,
-    MacroAgent,
-    MicrostructureAgent,
+    CrossAssetMacroModule,
+    FundamentalModule,
+    MarketRegimeModule,
+    MeanReversionModule,
+    MicrostructureModule,
+    MomentumModule,
+    SentimentNewsModule,
+    TechnicalTrendModule,
+    VolatilityRiskModule,
 )
 from .base import BaseAgent
 
@@ -36,20 +41,22 @@ logger = get_logger("athena.agent_orchestrator")
 
 
 class AgentOrchestrator:
-    """Manages the lifecycle and parallel execution of the 6 ATHENA V2 Research Agents."""
+    """Manages the lifecycle and parallel execution of ATHENA Analytical Modules."""
 
     def __init__(self):
         self.agents: Dict[AgentType, BaseAgent] = {
-            AgentType.TECHNICAL: TechnicalAgent(),
-            AgentType.QUANT: QuantAgent(),
-            AgentType.FUNDAMENTAL: FundamentalAgent(),
-            AgentType.SENTIMENT_NEWS: SentimentNewsAgent(),
-            AgentType.MACRO: MacroAgent(),
-            AgentType.MICROSTRUCTURE: MicrostructureAgent(),
+            AgentType.TECHNICAL_TREND: TechnicalTrendModule(),
+            AgentType.MOMENTUM: MomentumModule(),
+            AgentType.MEAN_REVERSION: MeanReversionModule(),
+            AgentType.VOLATILITY_RISK: VolatilityRiskModule(),
+            AgentType.FUNDAMENTAL: FundamentalModule(),
+            AgentType.SENTIMENT_NEWS: SentimentNewsModule(),
+            AgentType.MARKET_REGIME: MarketRegimeModule(),
+            AgentType.CROSS_ASSET_MACRO: CrossAssetMacroModule(),
         }
 
     async def run_all_agents(self, context: AgentContext) -> AgentRunSummary:
-        """Executes all 6 research agents concurrently and returns aggregated report."""
+        """Executes analytical modules concurrently and returns aggregated report."""
         tasks = [agent.run(context) for agent in self.agents.values()]
         results: List[AgentOutput] = await asyncio.gather(*tasks)
 
@@ -62,30 +69,30 @@ class AgentOrchestrator:
         active_count = 0
 
         for out in results:
-            outputs_map[out.agent.value] = out
+            agent_key = out.agent.value if hasattr(out.agent, "value") else str(out.agent)
+            outputs_map[agent_key] = out
             if out.signal == AgentSignalType.BUY:
-                supporting.append(out.agent.value)
+                supporting.append(agent_key)
                 total_conf += out.confidence
                 active_count += 1
             elif out.signal == AgentSignalType.SELL:
-                opposing.append(out.agent.value)
+                opposing.append(agent_key)
                 total_conf += out.confidence
                 active_count += 1
             elif out.signal == AgentSignalType.HOLD:
-                neutral.append(out.agent.value)
+                neutral.append(agent_key)
                 total_conf += out.confidence
                 active_count += 1
             else:
-                unavailable.append(out.agent.value)
+                unavailable.append(agent_key)
 
-        # Aggregate confidence calculated only over available, active agents
         agg_conf = round(total_conf / active_count, 2) if active_count > 0 else 0.0
         diversity_score = round(active_count / len(self.agents), 2)
 
         qualitative = (
-            f"Research Consensus on {context.symbol}: {len(supporting)} BUY, {len(opposing)} SELL, "
+            f"Module Analysis on {context.symbol}: {len(supporting)} BUY, {len(opposing)} SELL, "
             f"{len(neutral)} HOLD, {len(unavailable)} UNAVAILABLE. "
-            f"Aggregate Confidence: {agg_conf:.0%}. Domain Availability: {diversity_score:.0%}."
+            f"Aggregate Confidence: {agg_conf:.0%}. Available Domains: {diversity_score:.0%}."
         )
 
         summary = AgentRunSummary(

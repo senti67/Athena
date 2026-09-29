@@ -1,6 +1,6 @@
 """
 ATHENA Risk and Performance Metrics Engine
-Calculates institutional hedge fund risk metrics, VaR, CVaR, and return ratios.
+Calculates institutional hedge fund risk metrics, VaR, CVaR, expected value, skewness, kurtosis, and return ratios.
 """
 
 import math
@@ -18,12 +18,12 @@ def calculate_log_returns(prices: List[float]) -> List[float]:
     """Computes log returns."""
     if len(prices) < 2:
         return []
-    return [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices))]
+    return [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices)) if prices[i - 1] > 0 and prices[i] > 0]
 
 
 def calculate_cagr(start_value: float, end_value: float, years: float) -> float:
     """Computes Compound Annual Growth Rate (CAGR)."""
-    if start_value <= 0 or years <= 0:
+    if start_value <= 0 or years <= 0 or end_value <= 0:
         return 0.0
     return (end_value / start_value) ** (1.0 / years) - 1.0
 
@@ -64,6 +64,44 @@ def calculate_sortino_ratio(
     if downside_std == 0:
         return 0.0
     return (mean_excess / downside_std) * math.sqrt(periods_per_year)
+
+
+def calculate_skewness(returns: List[float]) -> float:
+    """Computes statistical skewness of returns."""
+    if len(returns) < 3:
+        return 0.0
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+    std = math.sqrt(variance)
+    if std == 0:
+        return 0.0
+    m3 = sum((r - mean) ** 3 for r in returns) / len(returns)
+    return m3 / (std ** 3)
+
+
+def calculate_kurtosis(returns: List[float]) -> float:
+    """Computes statistical excess kurtosis of returns (normal distribution = 3.0)."""
+    if len(returns) < 4:
+        return 3.0
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+    std = math.sqrt(variance)
+    if std == 0:
+        return 3.0
+    m4 = sum((r - mean) ** 4 for r in returns) / len(returns)
+    return m4 / (std ** 4)
+
+
+def calculate_autocorrelation(returns: List[float], lag: int = 1) -> float:
+    """Computes sample autocorrelation of returns at given lag."""
+    if len(returns) < lag + 2:
+        return 0.0
+    mean = sum(returns) / len(returns)
+    c0 = sum((r - mean) ** 2 for r in returns) / len(returns)
+    if c0 == 0:
+        return 0.0
+    c_lag = sum((returns[i] - mean) * (returns[i - lag] - mean) for i in range(lag, len(returns))) / len(returns)
+    return c_lag / c0
 
 
 def calculate_max_drawdown(equity_curve: List[float]) -> Tuple[float, int, int]:
@@ -143,3 +181,19 @@ def calculate_win_rate_and_profit_factor(
     )
     expectancy = sum(trade_pnls) / len(trade_pnls)
     return win_rate, profit_factor, expectancy
+
+
+def calculate_expected_edge(
+    win_rate: float,
+    take_profit_pct: float,
+    stop_loss_pct: float,
+    win_loss_ratio: float = 0.0,
+) -> float:
+    """
+    Computes Expected Edge: EV = P(win) * avg_win - P(loss) * avg_loss.
+    """
+    p_win = max(0.0, min(1.0, win_rate))
+    p_loss = 1.0 - p_win
+    avg_win = take_profit_pct
+    avg_loss = stop_loss_pct
+    return (p_win * avg_win) - (p_loss * avg_loss)

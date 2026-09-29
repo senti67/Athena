@@ -1,5 +1,5 @@
 """
-End-to-End Integration Tests for ATHENA V2 Autonomous Trading Pipeline
+End-to-End Integration Tests for ATHENA Autonomous Trading Pipeline
 """
 
 import pytest
@@ -43,7 +43,7 @@ async def test_complete_autonomous_trading_pipeline():
         regime = regime_detector.detect_regime(features)
         assert regime.regime is not None
 
-        # 4. 6 Core Research Agents & 5 Production Strategies
+        # 4. 8 Analytical Modules & 6 Production Strategies
         port_state = portfolio_manager.get_portfolio_state()
         ctx = AgentContext(
             symbol=symbol,
@@ -54,13 +54,13 @@ async def test_complete_autonomous_trading_pipeline():
             market_news=["AAPL reports strong demand across all product categories"],
         )
         agents_summary = await agent_orchestrator.run_all_agents(ctx)
-        assert len(agents_summary.agent_outputs) == 6
+        assert len(agents_summary.agent_outputs) == 8
 
         best_strat_setup, strats = strategy_engine.evaluate_strategies(ctx)
-        assert len(strats) == 5
+        assert len(strats) == 6
 
-        # 5. Debate / Consensus with Evidence Domain Deduplication
-        debate = debate_engine.conduct_debate(symbol, agents_summary, strats)
+        # 5. Correlation-Aware Signal Aggregator / Debate Report
+        debate = debate_engine.conduct_debate(symbol, agents_summary, strats, regime)
         assert debate.agreement_score >= 0.0
         assert debate.domain_diversity_score > 0.0
 
@@ -81,7 +81,7 @@ async def test_complete_autonomous_trading_pipeline():
         risk_check = risk_engine.evaluate_decision(decision, port_state)
         assert risk_check is not None
 
-        # 8. Execution Router
+        # 8. Execution Router (Mock / Paper test)
         if risk_check.approved:
             order_resp = await execution_router.execute_trade(decision, risk_check, mode=ExecutionMode.PAPER)
             assert order_resp.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)

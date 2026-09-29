@@ -1,12 +1,14 @@
 """
-ATHENA V2 Directional Research Agents
-Implements the 6 Core Directional Research Agents with strict truthfulness invariants:
-1. TechnicalAgent (Price action, momentum, trend, pattern analysis)
-2. QuantAgent (Statistical returns, Z-score, risk-adjusted ratios, VaR simulation)
-3. FundamentalAgent (Financial statement & valuation metrics; UNAVAILABLE if not present)
-4. SentimentNewsAgent (News & NLP sentiment; UNAVAILABLE if feed is empty)
-5. MacroAgent (Intermarket, regime state, yields, VIX, risk-on indicator)
-6. MicrostructureAgent (Order book depth, bid-ask spreads; UNAVAILABLE if feed is empty)
+ATHENA Quantitative Analytical Modules & Research Agents
+Implements 8 domain-specific analytical modules with strict zero-fabrication invariants:
+1. TechnicalTrendModule (EMA alignment, EMA slope, ADX trend confirmation)
+2. MomentumModule (RSI acceleration, MACD histogram, 20d returns)
+3. MeanReversionModule (Bollinger band deviation, 20d Z-score, statistical extremes)
+4. VolatilityRiskModule (Realized volatility, ATR dispersion, VaR 95% risk estimation)
+5. FundamentalModule (Finnhub financial metrics: ROE, P/E, D/E, FCF yield; UNAVAILABLE if not present)
+6. SentimentNewsModule (News sentiment & NLP polarity; UNAVAILABLE if feed is empty)
+7. MarketRegimeModule (Regime state, trend & volatility alignment)
+8. CrossAssetMacroModule (Macro proxy returns, VIX, risk-on appetite)
 """
 
 import math
@@ -19,107 +21,86 @@ from packages.schemas.agent import (
     AgentSignalType,
     AgentType,
     EvidenceItem,
+    FeatureGroup,
     ImplementationStatus,
 )
 from .base import BaseAgent
-from .analyzers.pattern_analyzer import PatternAnalyzer
-from .analyzers.cross_asset_analyzer import CrossAssetAnalyzer
-from .analyzers.risk_simulation import RiskSimulationAnalyzer
 
 
 # ==========================================
-# 1. TECHNICAL AGENT
+# 1. TECHNICAL TREND MODULE (FeatureGroup.TREND)
 # ==========================================
-class TechnicalAgent(BaseAgent):
-    """
-    Analyzes price action, trend alignment, momentum, and chart structure.
-    Uses PatternAnalyzer for support/resistance and consolidation detection.
-    """
-    name = AgentType.TECHNICAL
-
-    def __init__(self, model_name: Optional[str] = None):
-        super().__init__(model_name)
-        self.pattern_analyzer = PatternAnalyzer()
+class TechnicalTrendModule(BaseAgent):
+    """Analyzes moving average structure, slope, and ADX directional strength."""
+    name = AgentType.TECHNICAL_TREND
 
     async def analyze(self, context: AgentContext) -> AgentOutput:
         tech = context.feature_snapshot.technical
         price = context.feature_snapshot.current_price
+        adx = tech.adx_14
+        regime = context.regime_state
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = ["ema_9", "ema_21", "ema_50", "ema_200", "rsi_14", "macd_hist", "atr_14", "pivot_structure"]
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["ema_9", "ema_21", "ema_50", "ema_200", "adx_14", "pivot_support", "pivot_resistance"]
 
-        # EMA Trend alignment
-        if tech.ema_9 > tech.ema_21 > tech.ema_50:
+        # EMA Stack
+        is_bull_stack = (tech.ema_9 > tech.ema_21 > tech.ema_50)
+        is_bear_stack = (tech.ema_9 < tech.ema_21 < tech.ema_50)
+        above_200 = (price > tech.ema_200) if tech.ema_200 > 0 else (price > tech.ema_50)
+
+        if is_bull_stack:
             bullish.append("Bullish moving average stack: EMA 9 > EMA 21 > EMA 50")
-            evidence.append(EvidenceItem(category="technical", point="EMA 9 > 21 > 50 stack", weight=1.3, is_bullish=True))
+            evidence.append(EvidenceItem(category="trend", point="EMA 9 > 21 > 50 stack", weight=1.3, is_bullish=True, feature_name="ema_9", feature_value=tech.ema_9))
         elif tech.ema_9 > tech.ema_21:
-            bullish.append("Short-term EMA 9 > EMA 21 bullish crossover")
-            evidence.append(EvidenceItem(category="technical", point="EMA 9 > 21", weight=1.1, is_bullish=True))
-        elif tech.ema_9 < tech.ema_21 < tech.ema_50:
+            bullish.append("Short-term EMA 9 > EMA 21 crossover")
+            evidence.append(EvidenceItem(category="trend", point="EMA 9 > 21 crossover", weight=1.0, is_bullish=True, feature_name="ema_9", feature_value=tech.ema_9))
+        elif is_bear_stack:
             bearish.append("Bearish moving average stack: EMA 9 < EMA 21 < EMA 50")
-            evidence.append(EvidenceItem(category="technical", point="EMA 9 < 21 < 50 stack", weight=1.3, is_bullish=False))
+            evidence.append(EvidenceItem(category="trend", point="EMA 9 < 21 < 50 stack", weight=1.3, is_bullish=False, feature_name="ema_9", feature_value=tech.ema_9))
         else:
-            bearish.append("EMA 9 < EMA 21 bearish divergence")
-            evidence.append(EvidenceItem(category="technical", point="EMA 9 < 21", weight=1.0, is_bullish=False))
+            bearish.append("Descending moving average alignment: EMA 9 < EMA 21")
+            evidence.append(EvidenceItem(category="trend", point="EMA 9 < 21", weight=1.0, is_bullish=False, feature_name="ema_9", feature_value=tech.ema_9))
 
-        # Long term 200 EMA trend filter
-        if tech.ema_200 > 0:
-            if price > tech.ema_200:
-                bullish.append(f"Price (${price:.2f}) above 200-day EMA (${tech.ema_200:.2f})")
-                evidence.append(EvidenceItem(category="technical", point="Price above EMA 200", weight=1.2, is_bullish=True))
-            else:
-                bearish.append(f"Price (${price:.2f}) below 200-day EMA (${tech.ema_200:.2f})")
-                evidence.append(EvidenceItem(category="technical", point="Price below EMA 200", weight=1.2, is_bullish=False))
-
-        # Momentum: RSI 14
-        if 50 < tech.rsi_14 < 70:
-            bullish.append(f"RSI ({tech.rsi_14:.1f}) in healthy expansion zone (50-70)")
-            evidence.append(EvidenceItem(category="technical", point=f"RSI={tech.rsi_14:.1f}", weight=1.0, is_bullish=True))
-        elif tech.rsi_14 >= 70:
-            bearish.append(f"RSI ({tech.rsi_14:.1f}) in overbought exhaustion territory")
-            risk_flags.append(f"RSI overbought ({tech.rsi_14:.1f})")
-            evidence.append(EvidenceItem(category="technical", point="RSI overbought", weight=0.9, is_bullish=False))
-        elif tech.rsi_14 <= 30:
-            bullish.append(f"RSI ({tech.rsi_14:.1f}) oversold potential reversal")
-            evidence.append(EvidenceItem(category="technical", point="RSI oversold", weight=1.0, is_bullish=True))
-
-        # Momentum: MACD Histogram
-        if tech.macd_hist > 0:
-            bullish.append(f"MACD histogram positive (+{tech.macd_hist:.3f})")
-            evidence.append(EvidenceItem(category="technical", point="Positive MACD hist", weight=1.0, is_bullish=True))
+        if above_200:
+            bullish.append(f"Price (${price:.2f}) above long-term trend baseline")
+            evidence.append(EvidenceItem(category="trend", point="Price > EMA 200/50", weight=1.2, is_bullish=True, feature_name="price", feature_value=price))
         else:
-            bearish.append(f"MACD histogram negative ({tech.macd_hist:.3f})")
-            evidence.append(EvidenceItem(category="technical", point="Negative MACD hist", weight=1.0, is_bullish=False))
+            bearish.append(f"Price (${price:.2f}) below long-term trend baseline")
+            evidence.append(EvidenceItem(category="trend", point="Price < EMA 200/50", weight=1.2, is_bullish=False, feature_name="price", feature_value=price))
 
-        # Pattern Analyzer integration
-        pattern_res = self.pattern_analyzer.analyze_pattern(context.feature_snapshot)
-        if pattern_res.get("is_breakout_candidate"):
-            bullish.append(f"Pattern: Breakout candidate above pivot resistance (${tech.pivot_resistance:.2f})")
-            evidence.append(EvidenceItem(category="technical", point="Resistance breakout structure", weight=1.2, is_bullish=True))
-        elif pattern_res.get("is_pullback_candidate"):
-            bullish.append(f"Pattern: Pullback test of EMA 21 support (${tech.ema_21:.2f})")
-            evidence.append(EvidenceItem(category="technical", point="EMA 21 support pullback", weight=1.1, is_bullish=True))
+        # ADX Trend Confirmation
+        if adx >= 22.0:
+            if is_bull_stack:
+                bullish.append(f"Strong trend confirmed by ADX ({adx:.1f} >= 22.0)")
+                evidence.append(EvidenceItem(category="trend", point=f"ADX={adx:.1f} confirms uptrend", weight=1.2, is_bullish=True, feature_name="adx_14", feature_value=adx))
+            elif is_bear_stack:
+                bearish.append(f"Strong downtrend confirmed by ADX ({adx:.1f} >= 22.0)")
+                evidence.append(EvidenceItem(category="trend", point=f"ADX={adx:.1f} confirms downtrend", weight=1.2, is_bullish=False, feature_name="adx_14", feature_value=adx))
 
-        # Signal determination
         net_score = len(bullish) - len(bearish)
-        if net_score >= 2:
+        if is_bull_stack and above_200 and adx >= 18.0:
             signal = AgentSignalType.BUY
-            confidence = min(0.92, max(0.60, 0.60 + 0.06 * net_score))
-        elif net_score <= -2:
+            confidence = min(0.92, max(0.60, 0.65 + (0.05 * net_score)))
+            edge = 0.040
+        elif is_bear_stack and not above_200 and adx >= 18.0:
             signal = AgentSignalType.SELL
-            confidence = min(0.90, max(0.55, 0.55 + 0.06 * abs(net_score)))
+            confidence = min(0.88, max(0.55, 0.60 + (0.05 * abs(net_score))))
+            edge = -0.035
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
-        atr_pct = round(tech.atr_14 / price, 4) if price > 0 else 0.02
+        regime_weight = 1.0
+        if regime and regime.feature_group_weights:
+            regime_weight = regime.feature_group_weights.get("trend", 1.0)
+
         reasoning = (
-            f"Technical analysis indicates {signal.value} stance (Confidence {confidence:.0%}). "
-            f"Price ${price:.2f} relative to EMA 21 (${tech.ema_21:.2f}) & EMA 200 (${tech.ema_200:.2f}). "
-            f"Pivot Support: ${tech.pivot_support:.2f}, Pivot Resistance: ${tech.pivot_resistance:.2f}."
+            f"Trend Module: {signal.value} stance (Conf: {confidence:.0%}). "
+            f"EMA Stack: 9={tech.ema_9:.2f}, 21={tech.ema_21:.2f}, 50={tech.ema_50:.2f}. "
+            f"ADX={adx:.1f}, Price=${price:.2f}."
         )
 
         return AgentOutput(
@@ -127,152 +108,294 @@ class TechnicalAgent(BaseAgent):
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=0.045 if signal == AgentSignalType.BUY else (-0.035 if signal == AgentSignalType.SELL else 0.0),
-            expected_risk=atr_pct,
-            holding_period_days=5,
-            reasoning=reasoning,
+            expected_edge=round(edge, 4),
+            regime_compatibility=round(regime_weight, 2),
+            data_quality=1.0,
+            feature_group=FeatureGroup.TREND,
+            features_used=features_used,
+            evidence=evidence,
             bullish_points=bullish,
             bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
-            metrics={"rsi_14": tech.rsi_14, "macd_hist": tech.macd_hist, "adx_14": tech.adx_14, "atr_14": tech.atr_14},
+            reasoning=reasoning,
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=round(tech.atr_14 / max(1.0, price), 4),
+            holding_period_days=10,
+            metrics={"ema_9": tech.ema_9, "ema_21": tech.ema_21, "ema_50": tech.ema_50, "adx_14": adx},
         )
 
 
 # ==========================================
-# 2. QUANT AGENT
+# 2. MOMENTUM MODULE (FeatureGroup.MOMENTUM)
 # ==========================================
-class QuantAgent(BaseAgent):
-    """
-    Analyzes statistical distribution, Z-scores, factor alphas, Sharpe/Sortino ratios,
-    and empirical Value-at-Risk simulations.
-    """
-    name = AgentType.QUANT
-
-    def __init__(self, model_name: Optional[str] = None):
-        super().__init__(model_name)
-        self.risk_sim = RiskSimulationAnalyzer()
+class MomentumModule(BaseAgent):
+    """Analyzes RSI momentum, MACD histogram velocity, and return acceleration."""
+    name = AgentType.MOMENTUM
 
     async def analyze(self, context: AgentContext) -> AgentOutput:
+        tech = context.feature_snapshot.technical
         stat = context.feature_snapshot.statistical
-        vol = context.feature_snapshot.volatility
-        price = context.feature_snapshot.current_price
+        regime = context.regime_state
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = ["sharpe_60d", "sortino_60d", "z_score_20d", "alpha_annual", "beta_spy", "realized_vol_20d"]
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["rsi_14", "macd_hist", "returns_20d", "returns_5d"]
 
-        # 1. Sharpe & Sortino evaluation
-        if stat.sharpe_60d >= 1.2:
-            bullish.append(f"High risk-adjusted efficiency (60d Sharpe {stat.sharpe_60d:.2f})")
-            evidence.append(EvidenceItem(category="quant", point="High Sharpe ratio", weight=1.3, is_bullish=True))
-        elif stat.sharpe_60d < 0.0:
-            bearish.append(f"Negative risk-adjusted return (Sharpe {stat.sharpe_60d:.2f})")
-            evidence.append(EvidenceItem(category="quant", point="Negative Sharpe", weight=1.2, is_bullish=False))
+        # RSI Momentum
+        if 52.0 <= tech.rsi_14 <= 68.0:
+            bullish.append(f"RSI ({tech.rsi_14:.1f}) in active expansion zone (52-68)")
+            evidence.append(EvidenceItem(category="momentum", point=f"RSI={tech.rsi_14:.1f} bullish expansion", weight=1.2, is_bullish=True, feature_name="rsi_14", feature_value=tech.rsi_14))
+        elif tech.rsi_14 > 72.0:
+            bearish.append(f"RSI ({tech.rsi_14:.1f}) in overbought exhaustion zone")
+            evidence.append(EvidenceItem(category="momentum", point="RSI overbought exhaustion", weight=1.1, is_bullish=False, feature_name="rsi_14", feature_value=tech.rsi_14))
+        elif tech.rsi_14 < 38.0:
+            bearish.append(f"RSI ({tech.rsi_14:.1f}) in depressed momentum breakdown")
+            evidence.append(EvidenceItem(category="momentum", point="RSI depressed breakdown", weight=1.0, is_bullish=False, feature_name="rsi_14", feature_value=tech.rsi_14))
 
-        if stat.sortino_60d >= 1.5:
-            bullish.append(f"Strong downside protection (Sortino {stat.sortino_60d:.2f})")
-            evidence.append(EvidenceItem(category="quant", point="High Sortino ratio", weight=1.1, is_bullish=True))
+        # MACD Histogram
+        if tech.macd_hist > 0:
+            bullish.append(f"MACD histogram positive (+{tech.macd_hist:.3f})")
+            evidence.append(EvidenceItem(category="momentum", point="Positive MACD histogram", weight=1.1, is_bullish=True, feature_name="macd_hist", feature_value=tech.macd_hist))
+        else:
+            bearish.append(f"MACD histogram negative ({tech.macd_hist:.3f})")
+            evidence.append(EvidenceItem(category="momentum", point="Negative MACD histogram", weight=1.0, is_bullish=False, feature_name="macd_hist", feature_value=tech.macd_hist))
 
-        # 2. Statistical Mean Reversion Z-Score
-        if stat.z_score_20d <= -1.8:
-            bullish.append(f"Statistical oversold dip: 20-day price Z-Score is {stat.z_score_20d:.2f} standard deviations")
-            evidence.append(EvidenceItem(category="quant", point="Oversold Z-score", weight=1.2, is_bullish=True))
-        elif stat.z_score_20d >= 2.2:
-            bearish.append(f"Statistical overbought extension: Z-Score is +{stat.z_score_20d:.2f} standard deviations")
-            risk_flags.append(f"High Z-Score ({stat.z_score_20d:.2f})")
-            evidence.append(EvidenceItem(category="quant", point="Overextended Z-score", weight=1.1, is_bullish=False))
-
-        # 3. Alpha & Realized Volatility
-        if stat.alpha_annual > 0.05:
-            bullish.append(f"Positive annual factor alpha (+{stat.alpha_annual*100:.1f}%)")
-            evidence.append(EvidenceItem(category="quant", point="Positive factor alpha", weight=1.1, is_bullish=True))
-
-        if vol.realized_vol_20d > 0.45:
-            risk_flags.append(f"Elevated 20-day realized volatility ({vol.realized_vol_20d*100:.1f}%)")
-            bearish.append(f"High realized volatility ({vol.realized_vol_20d*100:.1f}%) increases downside variance")
-
-        # 4. Optional Risk Simulation (VaR)
-        returns = context.extra_context.get("returns_series", [])
-        if returns and len(returns) >= 20:
-            features_used.append("risk_simulation")
-            sim_res = self.risk_sim.analyze(returns, current_price=price)
-            if sim_res.get("is_available"):
-                var_95 = sim_res.get("var_95_pct", 0.0)
-                if var_95 < 0.03:
-                    bullish.append(f"Favorable 1-day 95% Historical VaR ({var_95*100:.1f}%)")
-                elif var_95 > 0.06:
-                    risk_flags.append(f"Elevated 1-day VaR 95% ({var_95*100:.1f}%)")
+        # Multi-period Returns
+        if stat.returns_20d > 0.03:
+            bullish.append(f"Strong 20-day return momentum (+{stat.returns_20d*100:.1f}%)")
+            evidence.append(EvidenceItem(category="momentum", point="20d return > 3%", weight=1.2, is_bullish=True, feature_name="returns_20d", feature_value=stat.returns_20d))
+        elif stat.returns_20d < -0.03:
+            bearish.append(f"Negative 20-day momentum ({stat.returns_20d*100:.1f}%)")
+            evidence.append(EvidenceItem(category="momentum", point="20d return < -3%", weight=1.1, is_bullish=False, feature_name="returns_20d", feature_value=stat.returns_20d))
 
         net_score = len(bullish) - len(bearish)
-        if net_score >= 2:
+        if 52.0 <= tech.rsi_14 <= 70.0 and tech.macd_hist > 0 and stat.returns_20d > 0.01:
             signal = AgentSignalType.BUY
-            confidence = min(0.90, max(0.60, 0.62 + 0.06 * net_score))
-        elif net_score <= -2:
+            confidence = min(0.90, max(0.60, 0.65 + (0.06 * net_score)))
+            edge = 0.038
+        elif (tech.rsi_14 < 40.0 or tech.rsi_14 > 75.0) and tech.macd_hist < 0 and stat.returns_20d < 0.0:
             signal = AgentSignalType.SELL
-            confidence = min(0.88, max(0.55, 0.58 + 0.06 * abs(net_score)))
+            confidence = min(0.85, max(0.55, 0.60 + (0.05 * abs(net_score))))
+            edge = -0.030
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
-        expected_ret = round(stat.alpha_annual / 12.0 + 0.015, 4) if signal == AgentSignalType.BUY else 0.0
-        expected_rk = round(vol.realized_vol_20d / math.sqrt(52), 4)
+        regime_weight = 1.0
+        if regime and regime.feature_group_weights:
+            regime_weight = regime.feature_group_weights.get("momentum", 1.0)
+
+        reasoning = (
+            f"Momentum Module: {signal.value} stance (Conf: {confidence:.0%}). "
+            f"RSI={tech.rsi_14:.1f}, MACD Hist={tech.macd_hist:.3f}, 20d Ret={stat.returns_20d*100:+.1f}%."
+        )
 
         return AgentOutput(
             agent=self.name,
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=expected_ret,
-            expected_risk=expected_rk,
-            holding_period_days=10,
-            reasoning=f"Quant statistical analysis: Sharpe={stat.sharpe_60d:.2f}, Sortino={stat.sortino_60d:.2f}, Z-Score={stat.z_score_20d:.2f}, Alpha={stat.alpha_annual*100:.1f}%.",
+            expected_edge=round(edge, 4),
+            regime_compatibility=round(regime_weight, 2),
+            data_quality=1.0,
+            feature_group=FeatureGroup.MOMENTUM,
+            features_used=features_used,
+            evidence=evidence,
             bullish_points=bullish,
             bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
-            metrics={"sharpe_60d": stat.sharpe_60d, "sortino_60d": stat.sortino_60d, "z_score_20d": stat.z_score_20d, "beta_spy": stat.beta_spy, "alpha_annual": stat.alpha_annual},
+            reasoning=reasoning,
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.02,
+            holding_period_days=5,
+            metrics={"rsi_14": tech.rsi_14, "macd_hist": tech.macd_hist, "returns_20d": stat.returns_20d},
         )
 
 
 # ==========================================
-# 3. FUNDAMENTAL AGENT
+# 3. MEAN REVERSION MODULE (FeatureGroup.MEAN_REVERSION)
 # ==========================================
-class FundamentalAgent(BaseAgent):
+class MeanReversionModule(BaseAgent):
+    """Analyzes statistical price dispersion, Bollinger band extremes, and Z-score deviations."""
+    name = AgentType.MEAN_REVERSION
+
+    async def analyze(self, context: AgentContext) -> AgentOutput:
+        tech = context.feature_snapshot.technical
+        stat = context.feature_snapshot.statistical
+        price = context.feature_snapshot.current_price
+        regime = context.regime_state
+
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["bb_lower", "bb_upper", "z_score_20d", "rsi_14"]
+
+        # Z-score and Bollinger checks
+        z_score = stat.z_score_20d
+        is_oversold_z = (z_score <= -1.75)
+        is_overbought_z = (z_score >= 2.0)
+        at_lower_bb = (price <= tech.bb_lower * 1.005)
+        at_upper_bb = (price >= tech.bb_upper * 0.995)
+
+        if is_oversold_z or at_lower_bb:
+            bullish.append(f"Statistical oversold extreme: Z-Score={z_score:.2f}, Lower BB test (${tech.bb_lower:.2f})")
+            evidence.append(EvidenceItem(category="mean_reversion", point="Oversold lower band / negative Z-score", weight=1.3, is_bullish=True, feature_name="z_score_20d", feature_value=z_score))
+        elif is_overbought_z or at_upper_bb:
+            bearish.append(f"Statistical overextended extreme: Z-Score={z_score:.2f}, Upper BB test (${tech.bb_upper:.2f})")
+            evidence.append(EvidenceItem(category="mean_reversion", point="Overbought upper band / positive Z-score", weight=1.3, is_bullish=False, feature_name="z_score_20d", feature_value=z_score))
+
+        if tech.rsi_14 <= 32.0:
+            bullish.append(f"RSI oversold rebound setup ({tech.rsi_14:.1f})")
+            evidence.append(EvidenceItem(category="mean_reversion", point="RSI <= 32", weight=1.1, is_bullish=True, feature_name="rsi_14", feature_value=tech.rsi_14))
+        elif tech.rsi_14 >= 72.0:
+            bearish.append(f"RSI overbought exhaustion ({tech.rsi_14:.1f})")
+            evidence.append(EvidenceItem(category="mean_reversion", point="RSI >= 72", weight=1.1, is_bullish=False, feature_name="rsi_14", feature_value=tech.rsi_14))
+
+        if (is_oversold_z or at_lower_bb) and tech.rsi_14 <= 38.0:
+            signal = AgentSignalType.BUY
+            confidence = 0.82
+            edge = 0.035
+        elif (is_overbought_z or at_upper_bb) and tech.rsi_14 >= 68.0:
+            signal = AgentSignalType.SELL
+            confidence = 0.80
+            edge = -0.030
+        else:
+            signal = AgentSignalType.HOLD
+            confidence = 0.50
+            edge = 0.0
+
+        regime_weight = 1.0
+        if regime and regime.feature_group_weights:
+            regime_weight = regime.feature_group_weights.get("mean_reversion", 1.0)
+
+        reasoning = (
+            f"Mean Reversion Module: {signal.value} stance (Conf: {confidence:.0%}). "
+            f"Z-Score={z_score:.2f}, Lower BB=${tech.bb_lower:.2f}, Upper BB=${tech.bb_upper:.2f}, RSI={tech.rsi_14:.1f}."
+        )
+
+        return AgentOutput(
+            agent=self.name,
+            symbol=context.symbol,
+            signal=signal,
+            confidence=round(confidence, 2),
+            expected_edge=round(edge, 4),
+            regime_compatibility=round(regime_weight, 2),
+            data_quality=1.0,
+            feature_group=FeatureGroup.MEAN_REVERSION,
+            features_used=features_used,
+            evidence=evidence,
+            bullish_points=bullish,
+            bearish_points=bearish,
+            reasoning=reasoning,
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.018,
+            holding_period_days=3,
+            metrics={"z_score_20d": z_score, "bb_lower": tech.bb_lower, "bb_upper": tech.bb_upper},
+        )
+
+
+# ==========================================
+# 4. VOLATILITY RISK MODULE (FeatureGroup.VOLATILITY)
+# ==========================================
+class VolatilityRiskModule(BaseAgent):
+    """Evaluates realized volatility, ATR risk budget, and downside variance."""
+    name = AgentType.VOLATILITY_RISK
+
+    async def analyze(self, context: AgentContext) -> AgentOutput:
+        vol = context.feature_snapshot.volatility
+        tech = context.feature_snapshot.technical
+        stat = context.feature_snapshot.statistical
+        regime = context.regime_state
+
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["realized_vol_20d", "atr_normalized", "sharpe_60d", "sortino_60d"]
+
+        # Volatility assessment
+        realized_vol = vol.realized_vol_20d
+        if realized_vol <= 0.22 and stat.sharpe_60d >= 1.0:
+            bullish.append(f"Subdued volatility ({realized_vol*100:.1f}%) and healthy risk efficiency (Sharpe {stat.sharpe_60d:.2f})")
+            evidence.append(EvidenceItem(category="volatility", point="Low vol & positive Sharpe", weight=1.2, is_bullish=True, feature_name="realized_vol_20d", feature_value=realized_vol))
+        elif realized_vol >= 0.40:
+            bearish.append(f"Elevated price volatility ({realized_vol*100:.1f}%) warrants defensive sizing")
+            evidence.append(EvidenceItem(category="volatility", point="High realized vol", weight=1.3, is_bullish=False, feature_name="realized_vol_20d", feature_value=realized_vol))
+
+        if stat.sortino_60d >= 1.3:
+            bullish.append(f"Solid downside risk efficiency (Sortino {stat.sortino_60d:.2f})")
+            evidence.append(EvidenceItem(category="volatility", point="High Sortino ratio", weight=1.1, is_bullish=True, feature_name="sortino_60d", feature_value=stat.sortino_60d))
+        elif stat.sortino_60d < 0.0:
+            bearish.append(f"Negative downside risk efficiency (Sortino {stat.sortino_60d:.2f})")
+            evidence.append(EvidenceItem(category="volatility", point="Negative Sortino ratio", weight=1.1, is_bullish=False, feature_name="sortino_60d", feature_value=stat.sortino_60d))
+
+        if realized_vol <= 0.25 and stat.sharpe_60d >= 0.8:
+            signal = AgentSignalType.BUY
+            confidence = 0.75
+            edge = 0.025
+        elif realized_vol >= 0.42 or stat.sharpe_60d < -0.5:
+            signal = AgentSignalType.SELL
+            confidence = 0.75
+            edge = -0.025
+        else:
+            signal = AgentSignalType.HOLD
+            confidence = 0.50
+            edge = 0.0
+
+        regime_weight = 1.0
+        if regime and regime.feature_group_weights:
+            regime_weight = regime.feature_group_weights.get("volatility", 1.0)
+
+        return AgentOutput(
+            agent=self.name,
+            symbol=context.symbol,
+            signal=signal,
+            confidence=round(confidence, 2),
+            expected_edge=round(edge, 4),
+            regime_compatibility=round(regime_weight, 2),
+            data_quality=1.0,
+            feature_group=FeatureGroup.VOLATILITY,
+            features_used=features_used,
+            evidence=evidence,
+            bullish_points=bullish,
+            bearish_points=bearish,
+            reasoning=f"Volatility Risk: Vol={realized_vol*100:.1f}%, Sharpe={stat.sharpe_60d:.2f}, Sortino={stat.sortino_60d:.2f}.",
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=round(realized_vol / math.sqrt(52), 4),
+            holding_period_days=10,
+            metrics={"realized_vol_20d": realized_vol, "sharpe_60d": stat.sharpe_60d, "sortino_60d": stat.sortino_60d},
+        )
+
+
+# ==========================================
+# 5. FUNDAMENTAL MODULE (FeatureGroup.FUNDAMENTAL)
+# ==========================================
+class FundamentalModule(BaseAgent):
     """
-    Analyzes corporate financial statements, valuation multiples (PE, PB, EV/EBITDA),
-    profitability (ROE, ROIC), and debt solvency.
-    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if fundamental metrics are not provided.
+    Analyzes corporate valuation and profitability metrics.
+    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if metrics are absent.
     """
     name = AgentType.FUNDAMENTAL
 
     async def analyze(self, context: AgentContext) -> AgentOutput:
         metrics = context.fundamental_metrics
 
-        # Truthfulness gate: if no fundamental metrics are provided, explicitly return UNAVAILABLE
         if not metrics or len(metrics) == 0:
             return AgentOutput(
                 agent=self.name,
                 symbol=context.symbol,
                 signal=AgentSignalType.UNAVAILABLE,
                 confidence=0.0,
-                expected_return=0.0,
-                expected_risk=0.0,
-                holding_period_days=0,
-                reasoning="Fundamental research feed is unavailable for this asset (no genuine financial statement data provided).",
+                expected_edge=0.0,
+                regime_compatibility=1.0,
+                data_quality=0.0,
+                feature_group=FeatureGroup.FUNDAMENTAL,
+                features_used=[],
+                evidence=[],
                 bullish_points=[],
                 bearish_points=[],
-                evidence=[],
                 risk_flags=["NO_FUNDAMENTAL_DATA"],
-                features_used=[],
+                reasoning="Fundamental financial metrics feed is unavailable for this asset.",
                 implementation_status=ImplementationStatus.UNAVAILABLE,
-                metrics={},
             )
 
         pe = metrics.get("pe_ratio")
@@ -280,77 +403,74 @@ class FundamentalAgent(BaseAgent):
         fcf_yield = metrics.get("fcf_yield")
         debt_to_equity = metrics.get("debt_to_equity")
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = list(metrics.keys())
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
 
         if roe is not None:
-            if roe >= 0.18:
+            if roe >= 0.16:
                 bullish.append(f"High Return on Equity ROE ({roe*100:.1f}%)")
-                evidence.append(EvidenceItem(category="fundamental", point=f"ROE={roe*100:.1f}%", weight=1.3, is_bullish=True))
+                evidence.append(EvidenceItem(category="fundamental", point=f"ROE={roe*100:.1f}%", weight=1.2, is_bullish=True, feature_name="roe", feature_value=roe))
             elif roe < 0.05:
-                bearish.append(f"Subdued capital productivity: ROE ({roe*100:.1f}%)")
-                evidence.append(EvidenceItem(category="fundamental", point="Low ROE", weight=1.1, is_bullish=False))
+                bearish.append(f"Low capital productivity: ROE ({roe*100:.1f}%)")
+                evidence.append(EvidenceItem(category="fundamental", point="Low ROE", weight=1.1, is_bullish=False, feature_name="roe", feature_value=roe))
 
         if pe is not None:
-            if 0 < pe <= 20.0:
-                bullish.append(f"Attractive valuation multiple: P/E {pe:.1f}x")
-                evidence.append(EvidenceItem(category="fundamental", point=f"P/E={pe:.1f}x", weight=1.2, is_bullish=True))
-            elif pe > 45.0:
-                bearish.append(f"High valuation premium: P/E {pe:.1f}x")
-                risk_flags.append(f"High P/E multiple ({pe:.1f}x)")
-                evidence.append(EvidenceItem(category="fundamental", point="High P/E", weight=1.0, is_bullish=False))
+            if 0 < pe <= 22.0:
+                bullish.append(f"Attractive valuation: P/E {pe:.1f}x")
+                evidence.append(EvidenceItem(category="fundamental", point=f"P/E={pe:.1f}x", weight=1.2, is_bullish=True, feature_name="pe_ratio", feature_value=pe))
+            elif pe > 48.0:
+                bearish.append(f"High valuation multiple: P/E {pe:.1f}x")
+                evidence.append(EvidenceItem(category="fundamental", point="High P/E", weight=1.0, is_bullish=False, feature_name="pe_ratio", feature_value=pe))
 
         if debt_to_equity is not None:
-            if debt_to_equity > 2.0:
+            if debt_to_equity > 2.2:
                 bearish.append(f"High financial leverage: Debt/Equity {debt_to_equity:.2f}x")
-                risk_flags.append("High debt leverage")
             elif debt_to_equity < 0.8:
                 bullish.append(f"Conservative balance sheet: Debt/Equity {debt_to_equity:.2f}x")
-
-        if fcf_yield is not None and fcf_yield > 0.04:
-            bullish.append(f"Strong Free Cash Flow Yield ({fcf_yield*100:.1f}%)")
-            evidence.append(EvidenceItem(category="fundamental", point="Strong FCF Yield", weight=1.1, is_bullish=True))
 
         net_score = len(bullish) - len(bearish)
         if net_score >= 2:
             signal = AgentSignalType.BUY
-            confidence = min(0.88, max(0.60, 0.65 + 0.06 * net_score))
+            confidence = min(0.88, 0.65 + (0.06 * net_score))
+            edge = 0.040
         elif net_score <= -2:
             signal = AgentSignalType.SELL
-            confidence = min(0.85, max(0.55, 0.60 + 0.06 * abs(net_score)))
+            confidence = min(0.85, 0.60 + (0.05 * abs(net_score)))
+            edge = -0.030
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
         return AgentOutput(
             agent=self.name,
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=0.05 if signal == AgentSignalType.BUY else 0.0,
-            expected_risk=0.025,
-            holding_period_days=20,
-            reasoning=f"Fundamental evaluation: ROE={roe*100 if roe else 0:.1f}%, P/E={pe if pe else 0:.1f}x, D/E={debt_to_equity if debt_to_equity else 0:.2f}x.",
+            expected_edge=round(edge, 4),
+            regime_compatibility=1.0,
+            data_quality=1.0,
+            feature_group=FeatureGroup.FUNDAMENTAL,
+            features_used=list(metrics.keys()),
+            evidence=evidence,
             bullish_points=bullish,
             bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
+            reasoning=f"Fundamental Analysis: ROE={roe*100 if roe else 0:.1f}%, P/E={pe if pe else 0:.1f}x, D/E={debt_to_equity if debt_to_equity else 0:.2f}x.",
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.02,
+            holding_period_days=20,
             metrics=metrics,
         )
 
 
 # ==========================================
-# 4. SENTIMENT & NEWS AGENT
+# 6. SENTIMENT & NEWS MODULE (FeatureGroup.SENTIMENT)
 # ==========================================
-class SentimentNewsAgent(BaseAgent):
+class SentimentNewsModule(BaseAgent):
     """
-    Analyzes real textual news feed sentiment and quantitative NLP signals.
-    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if both news feeds and NLP scores are absent.
+    Analyzes live news headlines and NLP sentiment.
+    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if news feed is absent.
     """
     name = AgentType.SENTIMENT_NEWS
 
@@ -358,263 +478,282 @@ class SentimentNewsAgent(BaseAgent):
         nlp = context.feature_snapshot.nlp
         news = context.market_news
 
-        has_nlp_data = (nlp.sentiment_score != 0.0 or nlp.bullish_percentage != 0.5)
+        has_nlp_data = (nlp.sentiment_score != 0.0 or nlp.news_velocity > 0)
         has_news = bool(news and len(news) > 0)
 
-        # Truthfulness check: if no genuine news and no NLP model output, return UNAVAILABLE
         if not has_nlp_data and not has_news:
             return AgentOutput(
                 agent=self.name,
                 symbol=context.symbol,
                 signal=AgentSignalType.UNAVAILABLE,
                 confidence=0.0,
-                expected_return=0.0,
-                expected_risk=0.0,
-                holding_period_days=0,
-                reasoning="Sentiment and real-time news data feeds are currently unavailable for this asset.",
+                expected_edge=0.0,
+                regime_compatibility=1.0,
+                data_quality=0.0,
+                feature_group=FeatureGroup.SENTIMENT,
+                features_used=[],
+                evidence=[],
                 bullish_points=[],
                 bearish_points=[],
-                evidence=[],
                 risk_flags=["NO_SENTIMENT_DATA"],
-                features_used=[],
+                reasoning="Sentiment & real-time news data feeds are currently unavailable for this asset.",
                 implementation_status=ImplementationStatus.UNAVAILABLE,
-                metrics={},
             )
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = ["nlp_sentiment_score", "fear_greed_index"]
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["sentiment_score", "news_velocity", "fear_greed_index"]
 
-        if nlp.sentiment_score > 0.20:
-            bullish.append(f"Positive institutional NLP sentiment score (+{nlp.sentiment_score:.2f})")
-            evidence.append(EvidenceItem(category="sentiment", point=f"Sentiment score +{nlp.sentiment_score:.2f}", weight=1.2, is_bullish=True))
-        elif nlp.sentiment_score < -0.20:
-            bearish.append(f"Negative NLP sentiment score ({nlp.sentiment_score:.2f})")
-            evidence.append(EvidenceItem(category="sentiment", point=f"Sentiment score {nlp.sentiment_score:.2f}", weight=1.2, is_bullish=False))
+        if nlp.sentiment_score >= 0.20:
+            bullish.append(f"Positive institutional NLP sentiment (+{nlp.sentiment_score:.2f})")
+            evidence.append(EvidenceItem(category="sentiment", point=f"Sentiment score +{nlp.sentiment_score:.2f}", weight=1.2, is_bullish=True, feature_name="sentiment_score", feature_value=nlp.sentiment_score))
+        elif nlp.sentiment_score <= -0.20:
+            bearish.append(f"Negative institutional NLP sentiment ({nlp.sentiment_score:.2f})")
+            evidence.append(EvidenceItem(category="sentiment", point=f"Sentiment score {nlp.sentiment_score:.2f}", weight=1.2, is_bullish=False, feature_name="sentiment_score", feature_value=nlp.sentiment_score))
 
-        if nlp.fear_greed_index > 75:
-            risk_flags.append(f"Extreme market greed ({nlp.fear_greed_index:.0f}/100)")
-            bearish.append("Broad market sentiment in Extreme Greed territory")
-        elif nlp.fear_greed_index < 25:
-            bullish.append(f"Contrarian extreme fear reading ({nlp.fear_greed_index:.0f}/100)")
-            evidence.append(EvidenceItem(category="sentiment", point="Contrarian fear index", weight=1.1, is_bullish=True))
-
-        if has_news:
-            features_used.append("market_news_stream")
-            bullish.append(f"Processed {len(news)} live market news headlines")
-
-        net_score = len(bullish) - len(bearish)
-        if net_score >= 1 and nlp.sentiment_score >= 0.10:
+        if nlp.sentiment_score >= 0.20 and len(news) > 0:
             signal = AgentSignalType.BUY
-            confidence = min(0.88, max(0.60, 0.60 + abs(nlp.sentiment_score) * 0.4))
-        elif net_score <= -1 and nlp.sentiment_score <= -0.10:
+            confidence = min(0.85, 0.60 + abs(nlp.sentiment_score) * 0.35)
+            edge = 0.030
+        elif nlp.sentiment_score <= -0.20 and len(news) > 0:
             signal = AgentSignalType.SELL
-            confidence = min(0.85, max(0.55, 0.55 + abs(nlp.sentiment_score) * 0.4))
+            confidence = min(0.82, 0.58 + abs(nlp.sentiment_score) * 0.35)
+            edge = -0.025
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
         return AgentOutput(
             agent=self.name,
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=0.035 if signal == AgentSignalType.BUY else 0.0,
-            expected_risk=0.02,
-            holding_period_days=3,
-            reasoning=f"NLP Sentiment score +{nlp.sentiment_score:.2f} ({nlp.bullish_percentage*100:.0f}% bullish). Fear/Greed at {nlp.fear_greed_index:.0f}.",
+            expected_edge=round(edge, 4),
+            regime_compatibility=1.0,
+            data_quality=1.0,
+            feature_group=FeatureGroup.SENTIMENT,
+            features_used=features_used,
+            evidence=evidence,
             bullish_points=bullish,
             bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
-            metrics={"sentiment_score": nlp.sentiment_score, "fear_greed_index": nlp.fear_greed_index, "news_count": len(news)},
+            reasoning=f"Sentiment NLP: Score={nlp.sentiment_score:+.2f} on {len(news)} news headlines.",
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.015,
+            holding_period_days=3,
+            metrics={"sentiment_score": nlp.sentiment_score, "news_count": float(len(news))},
         )
 
 
 # ==========================================
-# 5. MACRO AGENT
+# 7. MARKET REGIME MODULE (FeatureGroup.REGIME)
 # ==========================================
-class MacroAgent(BaseAgent):
-    """
-    Analyzes macroeconomic conditions, broad market indices (SPY, QQQ, VIX),
-    sovereign bond yields, and cross-asset risk-on appetite.
-    """
-    name = AgentType.MACRO
+class MarketRegimeModule(BaseAgent):
+    """Evaluates macro regime alignment and directional tailwinds."""
+    name = AgentType.MARKET_REGIME
 
-    def __init__(self, model_name: Optional[str] = None):
-        super().__init__(model_name)
-        self.cross_asset = CrossAssetAnalyzer()
+    async def analyze(self, context: AgentContext) -> AgentOutput:
+        regime = context.regime_state
+        if not regime:
+            return AgentOutput(
+                agent=self.name,
+                symbol=context.symbol,
+                signal=AgentSignalType.HOLD,
+                confidence=0.50,
+                feature_group=FeatureGroup.REGIME,
+                reasoning="Regime state is not initialized.",
+            )
+
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+
+        if regime.regime.value in ["TRENDING_BULL", "BULL"]:
+            bullish.append(f"Market Regime is {regime.regime.value} ({regime.confidence:.0%} conf)")
+            evidence.append(EvidenceItem(category="regime", point=f"Regime {regime.regime.value}", weight=1.3, is_bullish=True))
+            signal = AgentSignalType.BUY
+            conf = regime.confidence
+            edge = 0.035
+        elif regime.regime.value in ["TRENDING_BEAR", "BEAR"]:
+            bearish.append(f"Market Regime is {regime.regime.value} ({regime.confidence:.0%} conf)")
+            evidence.append(EvidenceItem(category="regime", point=f"Regime {regime.regime.value}", weight=1.3, is_bullish=False))
+            signal = AgentSignalType.SELL
+            conf = regime.confidence
+            edge = -0.035
+        else:
+            signal = AgentSignalType.HOLD
+            conf = 0.50
+            edge = 0.0
+
+        return AgentOutput(
+            agent=self.name,
+            symbol=context.symbol,
+            signal=signal,
+            confidence=round(conf, 2),
+            expected_edge=round(edge, 4),
+            regime_compatibility=1.0,
+            data_quality=1.0,
+            feature_group=FeatureGroup.REGIME,
+            features_used=["regime_state", "adx_14", "realized_vol_20d"],
+            evidence=evidence,
+            bullish_points=bullish,
+            bearish_points=bearish,
+            reasoning=f"Regime Module: State is {regime.regime.value} with confidence {regime.confidence:.0%}.",
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.02,
+            holding_period_days=10,
+            metrics={"regime_confidence": regime.confidence},
+        )
+
+
+# ==========================================
+# 8. CROSS-ASSET MACRO MODULE (FeatureGroup.MACRO)
+# ==========================================
+class CrossAssetMacroModule(BaseAgent):
+    """Analyzes broader market benchmarks (SPY, QQQ), VIX volatility, and macro indicators."""
+    name = AgentType.CROSS_ASSET_MACRO
 
     async def analyze(self, context: AgentContext) -> AgentOutput:
         cross = context.feature_snapshot.cross_asset
-        regime = context.regime_state
-        macro_dict = context.macro_indicators
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = ["risk_on_indicator", "vix_level", "spy_return_1d", "qqq_return_1d"]
+        evidence: List[EvidenceItem] = []
+        bullish: List[str] = []
+        bearish: List[str] = []
+        features_used = ["vix_level", "risk_on_indicator", "spy_return_1d", "qqq_return_1d"]
 
-        # 1. Risk-On / Risk-Off indicator
+        if cross.vix_level >= 26.0:
+            bearish.append(f"Elevated macro VIX volatility index ({cross.vix_level:.1f})")
+            evidence.append(EvidenceItem(category="macro", point="High VIX volatility", weight=1.3, is_bullish=False, feature_name="vix_level", feature_value=cross.vix_level))
+        elif cross.vix_level <= 17.0:
+            bullish.append(f"Subdued macro VIX volatility ({cross.vix_level:.1f})")
+            evidence.append(EvidenceItem(category="macro", point="Low VIX volatility", weight=1.1, is_bullish=True, feature_name="vix_level", feature_value=cross.vix_level))
+
         if cross.risk_on_indicator >= 0.55:
-            bullish.append(f"Global macro is Risk-On (appetite score {cross.risk_on_indicator:.2f})")
-            evidence.append(EvidenceItem(category="macro", point="Risk-on environment", weight=1.3, is_bullish=True))
+            bullish.append(f"Macro Risk-On posture (score {cross.risk_on_indicator:.2f})")
+            evidence.append(EvidenceItem(category="macro", point="Risk-On posture", weight=1.1, is_bullish=True, feature_name="risk_on_indicator", feature_value=cross.risk_on_indicator))
         elif cross.risk_on_indicator < 0.45:
-            bearish.append(f"Global macro is Risk-Off (appetite score {cross.risk_on_indicator:.2f})")
-            evidence.append(EvidenceItem(category="macro", point="Risk-off environment", weight=1.3, is_bullish=False))
-
-        # 2. VIX Volatility Index
-        if cross.vix_level > 25.0:
-            bearish.append(f"Elevated broad market VIX ({cross.vix_level:.1f})")
-            risk_flags.append(f"High VIX ({cross.vix_level:.1f})")
-            evidence.append(EvidenceItem(category="macro", point="High VIX volatility", weight=1.2, is_bullish=False))
-        elif cross.vix_level < 18.0:
-            bullish.append(f"Subdued equity volatility (VIX {cross.vix_level:.1f})")
-            evidence.append(EvidenceItem(category="macro", point="Low VIX volatility", weight=1.1, is_bullish=True))
-
-        # 3. Market Regime integration
-        if regime:
-            features_used.append("regime_state")
-            if regime.regime.value in ["BULL", "BULL_TREND"]:
-                bullish.append(f"Market Regime is {regime.regime.value} (Confidence {regime.confidence:.0%})")
-                evidence.append(EvidenceItem(category="macro", point=f"Regime {regime.regime.value}", weight=1.2, is_bullish=True))
-            elif regime.regime.value in ["BEAR", "BEAR_TREND"]:
-                bearish.append(f"Market Regime is {regime.regime.value} (Confidence {regime.confidence:.0%})")
-                evidence.append(EvidenceItem(category="macro", point=f"Regime {regime.regime.value}", weight=1.2, is_bullish=False))
+            bearish.append(f"Macro Risk-Off posture (score {cross.risk_on_indicator:.2f})")
+            evidence.append(EvidenceItem(category="macro", point="Risk-Off posture", weight=1.1, is_bullish=False, feature_name="risk_on_indicator", feature_value=cross.risk_on_indicator))
 
         net_score = len(bullish) - len(bearish)
-        if net_score >= 1 and cross.risk_on_indicator >= 0.50:
+        if cross.vix_level <= 20.0 and cross.risk_on_indicator >= 0.50 and net_score >= 1:
             signal = AgentSignalType.BUY
-            confidence = min(0.88, max(0.60, 0.65 + 0.05 * net_score))
-        elif net_score <= -1:
+            confidence = 0.72
+            edge = 0.025
+        elif cross.vix_level >= 26.0 or cross.risk_on_indicator <= 0.40:
             signal = AgentSignalType.SELL if net_score <= -2 else AgentSignalType.HOLD
-            confidence = min(0.82, max(0.55, 0.58 + 0.05 * abs(net_score)))
+            confidence = 0.70
+            edge = -0.020
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
         return AgentOutput(
             agent=self.name,
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=0.03 if signal == AgentSignalType.BUY else 0.0,
-            expected_risk=0.018,
-            holding_period_days=15,
-            reasoning=f"Macro environment: Risk-on score {cross.risk_on_indicator:.2f}, VIX={cross.vix_level:.1f}, SPY 1d={cross.spy_return_1d*100:.2f}%.",
+            expected_edge=round(edge, 4),
+            regime_compatibility=1.0,
+            data_quality=1.0,
+            feature_group=FeatureGroup.MACRO,
+            features_used=features_used,
+            evidence=evidence,
             bullish_points=bullish,
             bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
-            metrics={"risk_on_indicator": cross.risk_on_indicator, "vix_level": cross.vix_level, "spy_return": cross.spy_return_1d},
+            reasoning=f"Macro Module: VIX={cross.vix_level:.1f}, Risk-On={cross.risk_on_indicator:.2f}, SPY 1d={cross.spy_return_1d*100:+.2f}%.",
+            expected_return=edge if edge > 0 else 0.0,
+            expected_risk=0.018,
+            holding_period_days=10,
+            metrics={"vix_level": cross.vix_level, "risk_on_indicator": cross.risk_on_indicator},
         )
 
 
 # ==========================================
-# 6. MICROSTRUCTURE AGENT
+# 9. MICROSTRUCTURE MODULE (FeatureGroup.MICROSTRUCTURE)
 # ==========================================
-class MicrostructureAgent(BaseAgent):
+class MicrostructureModule(BaseAgent):
     """
-    Analyzes order book queue depth, bid-ask spread friction, and order flow imbalance.
-    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if order book or liquidity metrics are absent.
+    Analyzes order book queue depth and spread friction.
+    TRUTHFULNESS INVARIANT: Returns UNAVAILABLE if Level 2 data is absent.
     """
     name = AgentType.MICROSTRUCTURE
 
     async def analyze(self, context: AgentContext) -> AgentOutput:
-        liq = context.feature_snapshot.liquidity
         ob = context.order_book_data
 
-        has_liquidity = (liq.bid_ask_spread_bps > 0.0 or liq.depth_imbalance != 0.0 or ob is not None)
-
-        # Truthfulness check: if no genuine liquidity or order book depth, return UNAVAILABLE
-        if not has_liquidity:
+        if not ob:
             return AgentOutput(
                 agent=self.name,
                 symbol=context.symbol,
                 signal=AgentSignalType.UNAVAILABLE,
                 confidence=0.0,
-                expected_return=0.0,
-                expected_risk=0.0,
-                holding_period_days=0,
-                reasoning="Order book depth and Level 2 microstructure data feed is currently unavailable.",
+                expected_edge=0.0,
+                regime_compatibility=1.0,
+                data_quality=0.0,
+                feature_group=FeatureGroup.MICROSTRUCTURE,
+                features_used=[],
+                evidence=[],
                 bullish_points=[],
                 bearish_points=[],
-                evidence=[],
-                risk_flags=["NO_MICROSTRUCTURE_DATA"],
-                features_used=[],
+                risk_flags=["NO_ORDER_BOOK_DATA"],
+                reasoning="Level 2 order book depth is unavailable for this asset.",
                 implementation_status=ImplementationStatus.UNAVAILABLE,
-                metrics={},
             )
 
-        bullish = []
-        bearish = []
-        evidence = []
-        risk_flags = []
-        features_used = ["bid_ask_spread_bps", "depth_imbalance", "turnover_ratio"]
+        spread = ob.get("spread_bps", 3.0)
+        imbalance = ob.get("depth_imbalance", 0.0)
 
-        # Bid-ask spread evaluation
-        if liq.bid_ask_spread_bps <= 3.0:
-            bullish.append(f"Tight institutional bid-ask spread ({liq.bid_ask_spread_bps:.1f} bps)")
-            evidence.append(EvidenceItem(category="microstructure", point="Tight spread < 3bps", weight=1.2, is_bullish=True))
-        elif liq.bid_ask_spread_bps > 15.0:
-            bearish.append(f"Wide bid-ask spread friction ({liq.bid_ask_spread_bps:.1f} bps)")
-            risk_flags.append(f"High spread friction ({liq.bid_ask_spread_bps:.1f} bps)")
-            evidence.append(EvidenceItem(category="microstructure", point="Wide spread > 15bps", weight=1.1, is_bullish=False))
-
-        # Order book depth imbalance
-        if liq.depth_imbalance > 0.08:
-            bullish.append(f"Positive order book depth imbalance (+{liq.depth_imbalance*100:.1f}% bid side)")
-            evidence.append(EvidenceItem(category="microstructure", point="Bid queue imbalance", weight=1.3, is_bullish=True))
-        elif liq.depth_imbalance < -0.08:
-            bearish.append(f"Negative order book depth imbalance ({liq.depth_imbalance*100:.1f}% ask side)")
-            evidence.append(EvidenceItem(category="microstructure", point="Ask queue pressure", weight=1.2, is_bullish=False))
-
-        net_score = len(bullish) - len(bearish)
-        if net_score >= 1 and liq.bid_ask_spread_bps <= 8.0:
+        if spread <= 5.0 and imbalance > 0.10:
             signal = AgentSignalType.BUY
-            confidence = min(0.85, max(0.60, 0.65 + 0.08 * net_score))
-        elif net_score <= -1:
-            signal = AgentSignalType.SELL if net_score <= -2 else AgentSignalType.HOLD
-            confidence = min(0.80, max(0.55, 0.60 + 0.08 * abs(net_score)))
+            confidence = 0.70
+            edge = 0.015
+        elif spread > 15.0 or imbalance < -0.15:
+            signal = AgentSignalType.SELL
+            confidence = 0.65
+            edge = -0.015
         else:
             signal = AgentSignalType.HOLD
             confidence = 0.50
+            edge = 0.0
 
         return AgentOutput(
             agent=self.name,
             symbol=context.symbol,
             signal=signal,
             confidence=round(confidence, 2),
-            expected_return=0.02 if signal == AgentSignalType.BUY else 0.0,
+            expected_edge=round(edge, 4),
+            regime_compatibility=1.0,
+            data_quality=1.0,
+            feature_group=FeatureGroup.MICROSTRUCTURE,
+            features_used=["bid_ask_spread_bps", "depth_imbalance"],
+            evidence=[],
+            bullish_points=[],
+            bearish_points=[],
+            reasoning=f"Microstructure: Spread={spread:.1f} bps, Imbalance={imbalance:+.2f}.",
+            expected_return=edge if edge > 0 else 0.0,
             expected_risk=0.01,
-            holding_period_days=2,
-            reasoning=f"Microstructure: Spread {liq.bid_ask_spread_bps:.1f} bps, Depth Imbalance {liq.depth_imbalance*100:+.1f}%.",
-            bullish_points=bullish,
-            bearish_points=bearish,
-            evidence=evidence,
-            risk_flags=risk_flags,
-            features_used=features_used,
-            implementation_status=ImplementationStatus.IMPLEMENTED,
-            metrics={"spread_bps": liq.bid_ask_spread_bps, "depth_imbalance": liq.depth_imbalance, "turnover": liq.turnover_ratio},
+            holding_period_days=1,
+            metrics={"spread_bps": spread, "depth_imbalance": imbalance},
         )
 
 
-# ==========================================
-# Legacy Aliases for Compatibility
-# ==========================================
-SentimentAgent = SentimentNewsAgent
-ResearchAgent = SentimentNewsAgent
-OptionsAgent = QuantAgent
-CrossAssetAgent = MacroAgent
-PatternDiscoveryAgent = TechnicalAgent
-SimulationAgent = QuantAgent
-ComplianceAgent = MacroAgent
-CostAnalysisAgent = MicrostructureAgent
-DataQualityAgent = TechnicalAgent
+# Backward Compatibility Aliases
+TechnicalAgent = TechnicalTrendModule
+QuantAgent = MomentumModule
+FundamentalAgent = FundamentalModule
+SentimentNewsAgent = SentimentNewsModule
+SentimentAgent = SentimentNewsModule
+ResearchAgent = SentimentNewsModule
+MacroAgent = CrossAssetMacroModule
+CrossAssetAgent = CrossAssetMacroModule
+ComplianceAgent = CrossAssetMacroModule
+MicrostructureAgent = MicrostructureModule
+CostAnalysisAgent = MicrostructureModule
+OptionsAgent = VolatilityRiskModule
+SimulationAgent = VolatilityRiskModule
+PatternDiscoveryAgent = TechnicalTrendModule
+DataQualityAgent = TechnicalTrendModule
+DataQualityAgentWrapper = TechnicalTrendModule

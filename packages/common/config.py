@@ -94,13 +94,26 @@ class Settings(BaseSettings):
         description="Primary market data provider: alpaca, finnhub, or mock",
     )
 
-    # Thresholds & Consensus Calibration
-    DEFAULT_CONFIDENCE_THRESHOLD: float = 0.75
+    # Quantitative Decision & Signal Calibration Thresholds
+    ATHENA_MIN_SIGNAL_SCORE: float = 0.55
+    ATHENA_MIN_EXPECTED_EDGE: float = 0.012         # 1.2% minimum expected edge
+    ATHENA_MIN_RISK_REWARD: float = 1.8             # 1.8:1 minimum reward-to-risk ratio
+    ATHENA_MIN_REGIME_SCORE: float = 0.50           # Minimum regime compatibility score
+    ATHENA_MAX_POSITION_WEIGHT: float = 0.20        # 20% max NAV per asset
+    ATHENA_RISK_PER_TRADE_PCT: float = 0.015        # 1.5% NAV risk per trade
+    ATHENA_ANALYSIS_ONLY: bool = False             # If true, runs scans/journals without broker orders
+    ATHENA_ATR_STOP_MULTIPLIER: float = 2.0         # Stop loss distance = 2.0 * ATR
+    ATHENA_ATR_TARGET_MULTIPLIER: float = 3.5       # Take profit target = 3.5 * ATR
+    ATHENA_MAX_HOLDING_DAYS: int = 15               # Max holding period before time-based exit
+    ATHENA_MIN_DATA_QUALITY: float = 0.80
+
+    # Thresholds & Consensus Calibration (Backward compatibility aliases)
+    DEFAULT_CONFIDENCE_THRESHOLD: float = 0.70
     MIN_DATA_QUALITY_SCORE: float = 0.80
-    MIN_RESEARCH_CONFIDENCE: float = 0.65
-    MIN_RESEARCH_AGREEMENT: float = 0.65
-    MIN_STRATEGY_CONFIDENCE: float = 0.65
-    MIN_RISK_REWARD_RATIO: float = 1.9
+    MIN_RESEARCH_CONFIDENCE: float = 0.60
+    MIN_RESEARCH_AGREEMENT: float = 0.60
+    MIN_STRATEGY_CONFIDENCE: float = 0.60
+    MIN_RISK_REWARD_RATIO: float = 1.8
     AGENT_WEIGHT: float = 0.50
     STRATEGY_WEIGHT: float = 0.50
 

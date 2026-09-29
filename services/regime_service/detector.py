@@ -1,23 +1,24 @@
 """
-ATHENA Market Regime Detection Ensemble
-Synthesizes Hidden Markov Model (HMM), GMM clustering, and Volatility/Trend classification.
+ATHENA Quantitative Market Regime Detection Engine
+Classifies market regime into 6 distinct states using measurable technical, volatility, and trend metrics.
+Dynamically sets strategy and feature group weights.
 """
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from packages.event_bus.bus import event_bus
 from packages.logging.logger import get_logger
 from packages.schemas.events import Event, EventType
 from packages.schemas.feature import FeatureSnapshot
-from packages.schemas.regime import MarketRegimeType, RegimeEnsembleBreakdown, RegimeState
+from packages.schemas.regime import MarketRegimeType, RegimeMetrics, RegimeState
 
 logger = get_logger("athena.regime_detector")
 
 
 class MarketRegimeDetector:
     """
-    Multi-model ensemble regime classifier.
-    Determines market macro state and dynamically weights appropriate strategies.
+    Quantitative Multi-Factor Market Regime Classifier.
+    Evaluates ADX, EMA structure, EMA slope, realized volatility, and Bollinger Bandwidth.
     """
 
     def detect_regime(self, snapshot: FeatureSnapshot) -> RegimeState:
@@ -25,158 +26,248 @@ class MarketRegimeDetector:
         stat = snapshot.statistical
         vol = snapshot.volatility
         cross = snapshot.cross_asset
+        price = snapshot.current_price
 
-        # 1. HMM Hidden State Proxy (Estimates probability of hidden Bull/Bear/Sideways state)
-        if stat.returns_20d > 0.03 and vol.realized_vol_20d < 0.22:
-            hmm_regime = MarketRegimeType.BULL
-            hmm_conf = 0.88
-        elif stat.returns_20d < -0.05 and vol.realized_vol_20d > 0.25:
-            hmm_regime = MarketRegimeType.BEAR
-            hmm_conf = 0.82
-        elif vol.realized_vol_20d > 0.35:
-            hmm_regime = MarketRegimeType.HIGH_VOLATILITY
-            hmm_conf = 0.90
+        # 1. Compute quantitative regime metrics
+        adx = tech.adx_14
+        atr_pct = (tech.atr_14 / price) if price > 0 else 0.015
+        realized_vol = vol.realized_vol_20d
+        vol_ratio = vol.vol_regime_ratio
+        bb_width = tech.bb_bandwidth
+        vol_ratio_volume = tech.volume_ratio
+
+        # EMA Stack Trend Score (-1.0 to +1.0)
+        ema_score = 0.0
+        if tech.ema_9 > tech.ema_21:
+            ema_score += 0.35
         else:
-            hmm_regime = MarketRegimeType.SIDEWAYS
-            hmm_conf = 0.75
+            ema_score -= 0.35
 
-        # 2. GMM Return/Vol Clustering Classifier
-        if stat.returns_5d > 0.015 and tech.rsi_14 > 55.0:
-            gmm_regime = MarketRegimeType.BULL
-            gmm_conf = 0.85
-        elif stat.returns_5d < -0.02 and tech.rsi_14 < 40.0:
-            gmm_regime = MarketRegimeType.BEAR
-            gmm_conf = 0.80
-        elif vol.realized_vol_20d < 0.12:
-            gmm_regime = MarketRegimeType.LOW_VOLATILITY
-            gmm_conf = 0.84
+        if tech.ema_21 > tech.ema_50:
+            ema_score += 0.35
         else:
-            gmm_regime = MarketRegimeType.SIDEWAYS
-            gmm_conf = 0.78
+            ema_score -= 0.35
 
-        # 3. Volatility / Trend ADX-ATR Matrix
-        price_above_ema50 = snapshot.current_price > tech.ema_50
-        price_above_ema200 = snapshot.current_price > tech.ema_200
-        strong_trend = tech.adx_14 > 25.0
-
-        if price_above_ema50 and price_above_ema200 and strong_trend:
-            vol_trend_regime = MarketRegimeType.BULL
-            vol_trend_conf = 0.92
-        elif (not price_above_ema50) and (not price_above_ema200) and strong_trend:
-            vol_trend_regime = MarketRegimeType.BEAR
-            vol_trend_conf = 0.89
-        elif vol.vol_regime_ratio > 1.8:
-            vol_trend_regime = MarketRegimeType.HIGH_VOLATILITY
-            vol_trend_conf = 0.87
+        if tech.ema_200 > 0:
+            if price > tech.ema_200:
+                ema_score += 0.30
+            else:
+                ema_score -= 0.30
         else:
-            vol_trend_regime = MarketRegimeType.SIDEWAYS
-            vol_trend_conf = 0.80
+            if price > tech.ema_50:
+                ema_score += 0.30
+            else:
+                ema_score -= 0.30
 
-        # 4. Supervised ML Classifier Proxy (incorporating Cross-Asset & Risk-On)
-        if cross.risk_on_indicator > 0.65 and stat.returns_1d > -0.01:
-            clf_regime = MarketRegimeType.BULL
-            clf_conf = 0.86
-        elif cross.risk_on_indicator < 0.35 or cross.vix_level > 28.0:
-            clf_regime = MarketRegimeType.HIGH_VOLATILITY if cross.vix_level > 28.0 else MarketRegimeType.BEAR
-            clf_conf = 0.88
-        else:
-            clf_regime = MarketRegimeType.SIDEWAYS
-            clf_conf = 0.76
+        ema_slope_20 = (tech.ema_21 - tech.ema_50) / tech.ema_50 if tech.ema_50 > 0 else 0.0
 
-        breakdown = RegimeEnsembleBreakdown(
-            hmm_regime=hmm_regime,
-            hmm_confidence=hmm_conf,
-            gmm_clustering_regime=gmm_regime,
-            gmm_confidence=gmm_conf,
-            volatility_trend_regime=vol_trend_regime,
-            volatility_trend_confidence=vol_trend_conf,
-            classifier_regime=clf_regime,
-            classifier_confidence=clf_conf,
+        # Benchmark trend
+        bench_trend = "NEUTRAL"
+        if cross.spy_return_1d > 0.005:
+            bench_trend = "BULLISH"
+        elif cross.spy_return_1d < -0.005:
+            bench_trend = "BEARISH"
+
+        regime_metrics = RegimeMetrics(
+            adx_14=round(adx, 2),
+            atr_pct=round(atr_pct, 4),
+            ema_trend_score=round(ema_score, 2),
+            ema_slope_20=round(ema_slope_20, 4),
+            realized_vol_20d=round(realized_vol, 4),
+            vol_ratio=round(vol_ratio, 2),
+            bb_bandwidth=round(bb_width, 4),
+            volume_ratio=round(vol_ratio_volume, 2),
+            benchmark_trend=bench_trend,
         )
 
-        # Ensemble Voting with confidence weighting
-        votes: Dict[MarketRegimeType, float] = {}
-        for r, c in [
-            (hmm_regime, hmm_conf * 0.25),
-            (gmm_regime, gmm_conf * 0.25),
-            (vol_trend_regime, vol_trend_conf * 0.30),
-            (clf_regime, clf_conf * 0.20),
-        ]:
-            votes[r] = votes.get(r, 0.0) + c
+        # 2. Rule-based Regime Classification
+        # A. High Volatility Extreme
+        if realized_vol >= 0.38 or atr_pct >= 0.038 or cross.vix_level >= 28.0 or vol_ratio >= 1.85:
+            regime = MarketRegimeType.HIGH_VOLATILITY
+            confidence = min(0.95, 0.70 + (realized_vol - 0.35) * 0.8)
+            desc = "High Volatility Regime: Elevated price variance and wider dispersion. Risk reduction required."
 
-        consensus_regime = max(votes.items(), key=lambda x: x[1])[0]
-        consensus_confidence = round(votes[consensus_regime], 2)
+        # B. Low Volatility Squeeze
+        elif realized_vol <= 0.12 and bb_width <= 0.035 and adx < 18.0:
+            regime = MarketRegimeType.LOW_VOLATILITY
+            confidence = 0.85
+            desc = "Low Volatility Squeeze: Range compression with subdued volatility, preparing for potential breakout."
 
-        # Map regime to strategy weights and recommendations
-        recommended_strategies, strategy_weights, description = self._get_regime_allocations(consensus_regime)
+        # C. Trending Bull
+        elif ema_score >= 0.60 and (adx >= 20.0 or stat.returns_20d > 0.02) and price > tech.ema_50:
+            regime = MarketRegimeType.TRENDING_BULL
+            confidence = min(0.92, 0.65 + (ema_score * 0.25))
+            desc = "Trending Bull: Sustained upward price structure, moving average alignment, and positive momentum."
+
+        # D. Trending Bear
+        elif ema_score <= -0.60 and (adx >= 20.0 or stat.returns_20d < -0.02) and price < tech.ema_50:
+            regime = MarketRegimeType.TRENDING_BEAR
+            confidence = min(0.90, 0.65 + (abs(ema_score) * 0.25))
+            desc = "Trending Bear: Downward trend structure with moving averages in bearish descending alignment."
+
+        # E. Sideways / Range-Bound
+        elif adx < 22.0 and abs(ema_score) < 0.50:
+            regime = MarketRegimeType.SIDEWAYS
+            confidence = 0.80
+            desc = "Sideways / Range-Bound: Lack of strong directional trend; oscillating between support and resistance."
+
+        # F. Uncertain
+        else:
+            regime = MarketRegimeType.UNCERTAIN
+            confidence = 0.55
+            desc = "Uncertain Market State: Mixed trend signals and conflicting volatility profile. Caution advised."
+
+        # 3. Strategy Suitability and Feature Group Allocations
+        rec_strategies, strat_weights, group_weights = self._get_allocations(regime)
 
         state = RegimeState(
             timestamp=datetime.utcnow(),
             symbol_or_market=snapshot.symbol,
-            regime=consensus_regime,
-            confidence=min(0.98, max(0.60, consensus_confidence)),
-            description=description,
-            recommended_strategies=recommended_strategies,
-            strategy_suitability_weights=strategy_weights,
-            ensemble_breakdown=breakdown,
+            regime=regime,
+            confidence=round(confidence, 2),
+            description=desc,
+            recommended_strategies=rec_strategies,
+            strategy_suitability_weights=strat_weights,
+            feature_group_weights=group_weights,
+            metrics=regime_metrics,
         )
 
         return state
 
-    def _get_regime_allocations(self, regime: MarketRegimeType):
-        if regime == MarketRegimeType.BULL:
+    def _get_allocations(
+        self, regime: MarketRegimeType
+    ) -> Tuple[List[str], Dict[str, float], Dict[str, float]]:
+        """Returns (recommended_strategies, strategy_weights, feature_group_weights)."""
+        if regime == MarketRegimeType.TRENDING_BULL:
             return (
-                ["trend_following", "momentum", "growth", "breakout"],
+                ["trend_following", "momentum", "breakout", "pullback"],
                 {
                     "trend_following": 1.35,
                     "momentum": 1.30,
-                    "growth": 1.25,
                     "breakout": 1.20,
-                    "pullback": 1.15,
-                    "mean_reversion": 0.60,
-                    "volatility": 0.50,
+                    "pullback": 1.25,
+                    "mean_reversion": 0.50,
+                    "volatility_swing": 0.70,
                 },
-                "Sustained upward price trend with expanding liquidity and strong risk appetite.",
-            )
-        elif regime == MarketRegimeType.BEAR:
-            return (
-                ["statistical_arbitrage", "pairs", "volatility", "value"],
                 {
-                    "pairs": 1.30,
-                    "statistical_arbitrage": 1.25,
-                    "volatility": 1.35,
-                    "value": 1.10,
-                    "trend_following": 0.70,
+                    "trend": 1.35,
+                    "momentum": 1.30,
+                    "mean_reversion": 0.50,
+                    "volatility": 0.80,
+                    "fundamental": 1.00,
+                    "sentiment": 1.00,
+                    "macro": 1.10,
+                },
+            )
+
+        elif regime == MarketRegimeType.TRENDING_BEAR:
+            return (
+                ["mean_reversion", "volatility_swing"],
+                {
+                    "trend_following": 0.60,
                     "momentum": 0.50,
-                    "growth": 0.40,
+                    "breakout": 0.45,
+                    "pullback": 0.60,
+                    "mean_reversion": 1.25,
+                    "volatility_swing": 1.35,
                 },
-                "Persistent downtrend with risk aversion and negative macro headwinds.",
-            )
-        elif regime == MarketRegimeType.HIGH_VOLATILITY:
-            return (
-                ["volatility", "mean_reversion", "statistical_arbitrage"],
                 {
-                    "volatility": 1.50,
-                    "mean_reversion": 1.20,
-                    "statistical_arbitrage": 1.10,
-                    "trend_following": 0.50,
-                    "momentum": 0.40,
-                    "breakout": 0.50,
+                    "trend": 0.60,
+                    "momentum": 0.50,
+                    "mean_reversion": 1.25,
+                    "volatility": 1.30,
+                    "fundamental": 1.10,
+                    "sentiment": 1.00,
+                    "macro": 1.20,
                 },
-                "Elevated realized and implied volatility; erratic swings and expanding spreads.",
             )
-        else:  # SIDEWAYS / LOW_VOLATILITY
+
+        elif regime == MarketRegimeType.SIDEWAYS:
             return (
-                ["mean_reversion", "pairs", "statistical_arbitrage", "swing"],
+                ["mean_reversion", "pullback"],
                 {
                     "mean_reversion": 1.40,
-                    "pairs": 1.30,
-                    "statistical_arbitrage": 1.25,
-                    "swing": 1.20,
-                    "trend_following": 0.60,
-                    "breakout": 0.60,
+                    "pullback": 1.15,
+                    "trend_following": 0.55,
+                    "momentum": 0.60,
+                    "breakout": 0.65,
+                    "volatility_swing": 0.85,
                 },
-                "Range-bound market oscillating between established support and resistance boundaries.",
+                {
+                    "mean_reversion": 1.40,
+                    "trend": 0.55,
+                    "momentum": 0.60,
+                    "volatility": 0.90,
+                    "fundamental": 1.10,
+                    "sentiment": 0.90,
+                    "macro": 0.90,
+                },
+            )
+
+        elif regime == MarketRegimeType.HIGH_VOLATILITY:
+            return (
+                ["mean_reversion", "volatility_swing"],
+                {
+                    "volatility_swing": 1.30,
+                    "mean_reversion": 1.20,
+                    "trend_following": 0.60,
+                    "momentum": 0.50,
+                    "breakout": 0.50,
+                    "pullback": 0.60,
+                },
+                {
+                    "volatility": 1.40,
+                    "mean_reversion": 1.20,
+                    "trend": 0.60,
+                    "momentum": 0.50,
+                    "fundamental": 1.00,
+                    "sentiment": 0.80,
+                    "macro": 1.20,
+                },
+            )
+
+        elif regime == MarketRegimeType.LOW_VOLATILITY:
+            return (
+                ["breakout", "momentum", "trend_following"],
+                {
+                    "breakout": 1.35,
+                    "momentum": 1.25,
+                    "trend_following": 1.15,
+                    "pullback": 1.05,
+                    "mean_reversion": 0.70,
+                    "volatility_swing": 1.10,
+                },
+                {
+                    "trend": 1.20,
+                    "momentum": 1.25,
+                    "volatility": 1.10,
+                    "mean_reversion": 0.70,
+                    "fundamental": 1.00,
+                    "sentiment": 1.00,
+                    "macro": 1.00,
+                },
+            )
+
+        else:  # UNCERTAIN
+            return (
+                ["mean_reversion"],
+                {
+                    "trend_following": 0.50,
+                    "momentum": 0.50,
+                    "mean_reversion": 0.60,
+                    "breakout": 0.40,
+                    "pullback": 0.50,
+                    "volatility_swing": 0.50,
+                },
+                {
+                    "trend": 0.50,
+                    "momentum": 0.50,
+                    "mean_reversion": 0.60,
+                    "volatility": 0.50,
+                    "fundamental": 0.80,
+                    "sentiment": 0.50,
+                    "macro": 0.50,
+                },
             )
 
 

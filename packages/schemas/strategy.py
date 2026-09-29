@@ -1,6 +1,6 @@
 """
-ATHENA V2 Quantitative Strategy Schemas
-Defines the 5 Active Production Strategies, Disabled/Experimental types, and structured outputs.
+ATHENA Quantitative Strategy Schemas
+Defines Active Production Strategies, Disabled/Quarantined Strategies, expected edge metrics, and structured signals.
 """
 
 from datetime import datetime
@@ -8,19 +8,21 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from .agent import ImplementationStatus
+from .agent import FeatureGroup, ImplementationStatus
 
 
 class StrategyType(str, Enum):
     """Active and Disabled Strategy Registry."""
-    # --- 5 ACTIVE PRODUCTION STRATEGIES ---
+    # --- 6 ACTIVE PRODUCTION STRATEGIES ---
     TREND_FOLLOWING = "trend_following"
     MOMENTUM = "momentum"
     MEAN_REVERSION = "mean_reversion"
     BREAKOUT = "breakout"
     PULLBACK = "pullback"
+    VOLATILITY_SWING = "volatility_swing"
 
-    # --- DISABLED / EXPERIMENTAL STRATEGIES ---
+    # --- DISABLED / EXPERIMENTAL / PLACEHOLDER STRATEGIES ---
+    VOLATILITY = "volatility_swing"
     SWING = "swing"
     PAIRS = "pairs"
     STATISTICAL_ARBITRAGE = "statistical_arbitrage"
@@ -29,7 +31,6 @@ class StrategyType(str, Enum):
     GROWTH = "growth"
     EVENT_DRIVEN = "event_driven"
     NEWS = "news"
-    VOLATILITY = "volatility"
     MACHINE_LEARNING = "machine_learning"
     REINFORCEMENT_LEARNING = "reinforcement_learning"
 
@@ -46,14 +47,19 @@ class StrategyOutput(BaseModel):
     symbol: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     signal: StrategySignal = Field(alias="action", default=StrategySignal.HOLD)
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    expected_edge: float = Field(default=0.0, description="Estimated directional edge (expected return)")
+    expected_value: float = Field(default=0.0, description="P(win)*AvgWin - P(loss)*AvgLoss")
+    probability_win: float = Field(default=0.50, ge=0.0, le=1.0)
     risk_reward: float = Field(default=2.0, ge=0.0)
     holding_period: str = Field(alias="timeframe", default="5D")
     stop_loss_pct: float = 0.025
     take_profit_pct: float = 0.060
+    feature_group: FeatureGroup = Field(default=FeatureGroup.TREND)
     indicators_used: Dict[str, float] = Field(default_factory=dict)
     evidence: List[str] = Field(default_factory=list)
     data_quality: float = Field(default=1.0, ge=0.0, le=1.0)
+    regime_compatibility: float = Field(default=1.0, ge=0.0, le=2.0)
     rationale: str = ""
     historical_sharpe: float = 1.5
     win_rate: float = 0.58

@@ -24,14 +24,17 @@ class Position(BaseModel):
     shares: float
     average_entry_price: float
     current_price: float
-    market_value: float
-    cost_basis: float
-    unrealized_pnl: float
-    unrealized_pnl_pct: float
-    portfolio_weight: float
+    market_value: float = 0.0
+    cost_basis: float = 0.0
+    unrealized_pnl: float = 0.0
+    unrealized_pnl_pct: float = 0.0
+    portfolio_weight: float = 0.0
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     last_updated: datetime = Field(default_factory=datetime.utcnow)
+
+
+PortfolioPosition = Position
 
 
 class PortfolioState(BaseModel):

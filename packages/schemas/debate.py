@@ -1,5 +1,5 @@
 """
-ATHENA Dialectical Debate & Research Consensus Schemas
+ATHENA Dialectical Debate & Correlation-Aware Consensus Schemas
 """
 
 from datetime import datetime
@@ -20,8 +20,12 @@ class DebateReport(BaseModel):
     symbol: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     agreement_score: float = Field(
-        ge=0.0, le=1.0, description="Consensus metric across active research domains"
+        ge=0.0, le=1.0, description="Consensus metric across orthogonal feature groups"
     )
+    composite_score: float = Field(default=0.0, description="Weighted composite score (-1.0 to +1.0)")
+    expected_edge: float = Field(default=0.0, description="Estimated directional edge")
+    conflict_penalty: float = Field(default=0.0, description="Confidence penalty for contradictory signals")
+    feature_group_scores: Dict[str, float] = Field(default_factory=dict)
     conflicts: List[ConflictItem] = Field(default_factory=list)
     strongest_bullish_evidence: List[str] = Field(default_factory=list)
     strongest_bearish_evidence: List[str] = Field(default_factory=list)

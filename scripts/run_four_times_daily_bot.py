@@ -54,7 +54,7 @@ async def run_trading_session(session_num: int, session_name: str):
     """
     print("\n" + "=" * 85)
     print(f"  ⚡ ATHENA V2 SESSION {session_num}/4: {session_name.upper()}")
-    print(f"  Target: Scan {len(WATCHLIST)} assets | 6 Research Agents & 5 Production Strategies")
+    print(f"  Target: Scan {len(WATCHLIST)} assets | 8 Analytical Modules & 6 Production Strategies")
     print("=" * 85)
 
     acct = await alpaca_broker.get_account()
@@ -209,7 +209,7 @@ async def run_trading_session(session_num: int, session_name: str):
                     f"• *Signal*: 🟢 *BUY* `{decision.suggested_shares}` shares @ `${decision.current_price:,.2f}`\n"
                     f"• *Target (TP)*: `${decision.take_profit:,.2f}` (+{((decision.take_profit-decision.current_price)/decision.current_price)*100:.1f}%)\n"
                     f"• *Stop Loss (SL)*: `${decision.stop_loss:,.2f}`\n"
-                    f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (6 Research Domains & 5 Active Strategies)\n"
+                    f"• *AI Consensus*: `{decision.confidence*100:.0f}%` (8 Analytical Modules & 6 Active Strategies)\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"💼 *Account BP*: `${live_bp:,.2f}`"
                 )

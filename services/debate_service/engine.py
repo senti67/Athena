@@ -1,169 +1,290 @@
 """
-ATHENA V2 Research Consensus & Evidence Deduplication Engine
-Synthesizes reports from the 6 research agents across orthogonal evidence domains,
-deduplicates correlated price indicators, and resolves multi-perspective tensions.
+ATHENA Correlation-Aware Signal Aggregator & Dialectical Debate Engine
+Aggregates analytical modules and strategy signals across orthogonal feature groups:
+TREND, MOMENTUM, MEAN_REVERSION, VOLATILITY, FUNDAMENTAL, SENTIMENT, MACRO, REGIME.
+Deduplicates correlated indicators and applies regime-weighted synthesis.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from packages.common.config import settings
 from packages.event_bus.bus import event_bus
 from packages.logging.logger import get_logger
-from packages.schemas.agent import AgentRunSummary, AgentSignalType, AgentType
+from packages.schemas.agent import AgentOutput, AgentRunSummary, AgentSignalType, FeatureGroup
 from packages.schemas.debate import ConflictItem, DebateReport
 from packages.schemas.events import Event, EventType
+from packages.schemas.regime import RegimeState
 from packages.schemas.strategy import StrategyOutput, StrategySignal
 
 logger = get_logger("athena.debate_engine")
 
 
-class DebateEngine:
+class SignalAggregator:
     """
-    Synthesizes research agent outputs with evidence domain deduplication.
-    Prevents correlated indicators from inflating consensus counts.
+    Correlation-Aware Signal Aggregation Engine.
+    Aggregates inputs by orthogonal feature groups to prevent correlated indicator dominance.
     """
 
-    def conduct_debate(
+    BASE_GROUP_WEIGHTS: Dict[str, float] = {
+        "trend": 0.25,
+        "momentum": 0.20,
+        "mean_reversion": 0.15,
+        "volatility": 0.15,
+        "fundamental": 0.10,
+        "sentiment": 0.05,
+        "macro": 0.10,
+        "regime": 0.00,  # Used for regime multiplier rather than standalone vote
+    }
+
+    def aggregate_signals(
         self,
         symbol: str,
         agent_summary: AgentRunSummary,
         strategy_outputs: Dict[str, StrategyOutput],
+        regime_state: Optional[RegimeState] = None,
     ) -> DebateReport:
-        active_outputs: Dict[str, Any] = {}
-        unavailable_agents: List[str] = list(agent_summary.unavailable_agents)
+        # 1. Bucket all outputs by FeatureGroup
+        group_signals: Dict[str, List[float]] = {k: [] for k in self.BASE_GROUP_WEIGHTS}
+        group_confidences: Dict[str, List[float]] = {k: [] for k in self.BASE_GROUP_WEIGHTS}
+        group_qualities: Dict[str, List[float]] = {k: [] for k in self.BASE_GROUP_WEIGHTS}
+        group_evidence: Dict[str, List[str]] = {k: [] for k in self.BASE_GROUP_WEIGHTS}
 
-        bull_agents: List[str] = []
-        bear_agents: List[str] = []
-        neutral_agents: List[str] = []
-
-        total_bull_conf = 0.0
-        total_bear_conf = 0.0
-
-        for name, out in agent_summary.agent_outputs.items():
-            if out.signal == AgentSignalType.UNAVAILABLE or out.confidence == 0.0:
-                if name not in unavailable_agents:
-                    unavailable_agents.append(name)
-            else:
-                active_outputs[name] = out
-                if out.signal == AgentSignalType.BUY:
-                    bull_agents.append(name)
-                    total_bull_conf += out.confidence
-                elif out.signal == AgentSignalType.SELL:
-                    bear_agents.append(name)
-                    total_bear_conf += out.confidence
-                else:
-                    neutral_agents.append(name)
-
-        active_count = len(active_outputs)
-        bull_count = len(bull_agents)
-        bear_count = len(bear_agents)
-        neutral_count = len(neutral_agents)
-        unavailable_count = len(unavailable_agents)
-
-        # 1. Consensus Agreement Score (over active, non-unavailable domains)
-        max_side = max(bull_count, bear_count)
-        agreement_score = round(max_side / active_count, 2) if active_count > 0 else 0.0
-        domain_diversity = round(active_count / 6.0, 2)
-
-        # 2. Extract Evidence & Blind spots
-        strongest_bullish: List[str] = []
-        strongest_bearish: List[str] = []
+        unavailable_domains: List[str] = list(agent_summary.unavailable_agents)
+        bullish_points: List[str] = []
+        bearish_points: List[str] = []
         weakest_evidence: List[str] = []
-        missing_info: List[str] = []
 
-        for name, out in active_outputs.items():
-            if out.signal == AgentSignalType.BUY:
-                strongest_bullish.extend([f"[{name.upper()}] {p}" for p in out.bullish_points[:2]])
-            elif out.signal == AgentSignalType.SELL:
-                strongest_bearish.extend([f"[{name.upper()}] {p}" for p in out.bearish_points[:2]])
+        # Process Analytical Modules
+        for name, out in agent_summary.agent_outputs.items():
+            if out.signal == AgentSignalType.UNAVAILABLE or out.data_quality == 0.0:
+                if name not in unavailable_domains:
+                    unavailable_domains.append(name)
+                continue
 
-            if out.confidence < 0.65:
-                weakest_evidence.append(f"Low confidence ({out.confidence:.2f}) from {name}")
+            grp = out.feature_group.value if hasattr(out.feature_group, "value") else str(out.feature_group)
+            if grp not in group_signals:
+                grp = "trend"
 
-        for unav in unavailable_agents:
-            missing_info.append(f"Domain data unavailable: {unav}")
+            # Numerical signal: BUY = +1.0, SELL = -1.0, HOLD = 0.0
+            sig_val = 1.0 if out.signal == AgentSignalType.BUY else (-1.0 if out.signal == AgentSignalType.SELL else 0.0)
+            group_signals[grp].append(sig_val)
+            group_confidences[grp].append(out.confidence)
+            group_qualities[grp].append(out.data_quality)
 
-        if not strongest_bearish:
-            missing_info.append("Counter-thesis evidence is light; observe macro and earnings catalysts.")
+            if out.bullish_points:
+                bullish_points.extend([f"[{grp.upper()}] {p}" for p in out.bullish_points[:2]])
+            if out.bearish_points:
+                bearish_points.extend([f"[{grp.upper()}] {p}" for p in out.bearish_points[:2]])
+            if out.confidence < 0.60:
+                weakest_evidence.append(f"Low confidence ({out.confidence:.0%}) in {grp}")
 
-        # 3. Identify Direct Conflicts (e.g. Fundamental vs Technical, Macro vs Quant)
+        # Process Active Strategies
+        for strat_name, strat_out in strategy_outputs.items():
+            if not strat_out.is_active or strat_out.signal == StrategySignal.UNAVAILABLE:
+                continue
+
+            grp = strat_out.feature_group.value if hasattr(strat_out.feature_group, "value") else str(strat_out.feature_group)
+            if grp not in group_signals:
+                grp = "trend"
+
+            sig_val = 1.0 if strat_out.signal == StrategySignal.BUY else (-1.0 if strat_out.signal == StrategySignal.SELL else 0.0)
+            group_signals[grp].append(sig_val)
+            group_confidences[grp].append(strat_out.confidence)
+            group_qualities[grp].append(strat_out.data_quality)
+
+            if strat_out.evidence:
+                if strat_out.signal == StrategySignal.BUY:
+                    bullish_points.extend([f"[STRAT-{strat_name}] {e}" for e in strat_out.evidence[:1]])
+                elif strat_out.signal == StrategySignal.SELL:
+                    bearish_points.extend([f"[STRAT-{strat_name}] {e}" for e in strat_out.evidence[:1]])
+
+        # 2. Compute Normalized Score & Quality per Feature Group
+        feature_group_scores: Dict[str, float] = {}
+        feature_group_confidences: Dict[str, float] = {}
+        feature_group_qualities: Dict[str, float] = {}
+
+        for grp in self.BASE_GROUP_WEIGHTS:
+            sigs = group_signals[grp]
+            confs = group_confidences[grp]
+            quals = group_qualities[grp]
+
+            if not sigs or sum(confs) == 0:
+                feature_group_scores[grp] = 0.0
+                feature_group_confidences[grp] = 0.0
+                feature_group_qualities[grp] = 0.0
+            else:
+                # Weighted average signal for this group
+                weighted_sig = sum(s * c for s, c in zip(sigs, confs)) / sum(confs)
+                avg_conf = sum(confs) / len(confs)
+                avg_qual = sum(quals) / len(quals)
+
+                feature_group_scores[grp] = round(weighted_sig, 3)
+                feature_group_confidences[grp] = round(avg_conf, 3)
+                feature_group_qualities[grp] = round(avg_qual, 3)
+
+        # 3. Apply Regime Suitability Weights
+        regime_weights = {}
+        if regime_state and regime_state.feature_group_weights:
+            regime_weights = regime_state.feature_group_weights
+
+        total_weight = 0.0
+        weighted_score_sum = 0.0
+        weighted_conf_sum = 0.0
+
+        for grp, base_w in self.BASE_GROUP_WEIGHTS.items():
+            if base_w <= 0.0:
+                continue
+
+            # Only weight groups that have active data quality
+            qual = feature_group_qualities.get(grp, 0.0)
+            if qual <= 0.0:
+                continue
+
+            regime_mult = regime_weights.get(grp, 1.0)
+            effective_weight = base_w * regime_mult * qual
+
+            score = feature_group_scores.get(grp, 0.0)
+            conf = feature_group_confidences.get(grp, 0.50)
+
+            weighted_score_sum += score * effective_weight
+            weighted_conf_sum += conf * effective_weight
+            total_weight += effective_weight
+
+        composite_score = round(weighted_score_sum / total_weight, 3) if total_weight > 0 else 0.0
+        raw_confidence = round(weighted_conf_sum / total_weight, 3) if total_weight > 0 else 0.50
+
+        # 4. Detect Cross-Domain Conflicts and Calculate Penalty
         conflicts: List[ConflictItem] = []
-        if "fundamental" in active_outputs and "technical" in active_outputs:
-            fund_out = active_outputs["fundamental"]
-            tech_out = active_outputs["technical"]
-            if fund_out.signal != tech_out.signal:
-                conflicts.append(
-                    ConflictItem(
-                        agents_involved=["fundamental", "technical"],
-                        topic="Valuation multiple vs Price momentum",
-                        agent_a_position=f"Fundamental: {fund_out.signal.value}",
-                        agent_b_position=f"Technical: {tech_out.signal.value}",
-                        severity=0.65,
-                        resolution="Favor short-term price momentum for timing while capping position at valuation limits.",
-                    )
+        conflict_penalty = 0.0
+
+        # Check Trend vs Mean Reversion conflict
+        trend_score = feature_group_scores.get("trend", 0.0)
+        meanrev_score = feature_group_scores.get("mean_reversion", 0.0)
+        if trend_score > 0.4 and meanrev_score < -0.4:
+            conflicts.append(
+                ConflictItem(
+                    agents_involved=["trend", "mean_reversion"],
+                    topic="Trend Momentum vs Mean Reversion Overextension",
+                    agent_a_position="Trend confirms bullish continuation",
+                    agent_b_position="Mean reversion warns of overbought resistance",
+                    severity=0.60,
+                    resolution="Proceed with tighter ATR trailing stop loss.",
                 )
-
-        if "macro" in active_outputs and "technical" in active_outputs:
-            macro_out = active_outputs["macro"]
-            tech_out = active_outputs["technical"]
-            if macro_out.signal == AgentSignalType.HOLD and tech_out.signal == AgentSignalType.BUY:
-                conflicts.append(
-                    ConflictItem(
-                        agents_involved=["macro", "technical"],
-                        topic="Macro caution vs Technical breakout",
-                        agent_a_position="Macro advises caution due to broader market conditions",
-                        agent_b_position="Technical detects breakout above resistance",
-                        severity=0.50,
-                        resolution="Proceed with trade but implement tighter stop loss to protect against market beta volatility.",
-                    )
-                )
-
-        # 4. Synthesize Dialectical Conclusion with Domain Deduplication
-        min_agreement = getattr(settings, "MIN_RESEARCH_AGREEMENT", 0.65)
-        min_conf = getattr(settings, "MIN_RESEARCH_CONFIDENCE", 0.65)
-
-        if bull_count > bear_count and agreement_score >= min_agreement:
-            recommended_action = "BUY"
-            consensus_conf = round(total_bull_conf / bull_count, 2)
-            debate_synthesis = (
-                f"Multi-domain research consensus confirms a {recommended_action} stance ({bull_count}/{active_count} active domains aligned, Agreement: {agreement_score:.0%}). "
-                f"Domain Diversity: {domain_diversity:.0%}. Leading thesis: {strongest_bullish[0] if strongest_bullish else 'Technical & Factor alignment'}."
             )
-        elif bear_count > bull_count and agreement_score >= min_agreement:
+            conflict_penalty += 0.10
+
+        elif trend_score < -0.4 and meanrev_score > 0.4:
+            conflicts.append(
+                ConflictItem(
+                    agents_involved=["trend", "mean_reversion"],
+                    topic="Downtrend Breakdown vs Oversold Bounce",
+                    agent_a_position="Trend indicates strong downward momentum",
+                    agent_b_position="Mean reversion detects oversold dip",
+                    severity=0.65,
+                    resolution="Await trend reversal confirmation before initiating longs.",
+                )
+            )
+            conflict_penalty += 0.12
+
+        # Check Macro vs Technical
+        macro_score = feature_group_scores.get("macro", 0.0)
+        if macro_score < -0.3 and trend_score > 0.4:
+            conflicts.append(
+                ConflictItem(
+                    agents_involved=["macro", "trend"],
+                    topic="Macro Risk-Off vs Single-Stock Momentum",
+                    agent_a_position="Macro warns of broad market risk-off / elevated VIX",
+                    agent_b_position="Stock technicals show bullish breakout",
+                    severity=0.50,
+                    resolution="Scale down position size to reduce portfolio market beta.",
+                )
+            )
+            conflict_penalty += 0.08
+
+        # Apply conflict penalty to confidence
+        calibrated_confidence = round(max(0.30, raw_confidence * (1.0 - min(0.35, conflict_penalty))), 2)
+
+        # 5. Agreement & Consensus Counts
+        bull_groups = sum(1 for s in feature_group_scores.values() if s >= 0.25)
+        bear_groups = sum(1 for s in feature_group_scores.values() if s <= -0.25)
+        neutral_groups = len(feature_group_scores) - (bull_groups + bear_groups)
+        active_domains = sum(1 for q in feature_group_qualities.values() if q > 0)
+
+        agreement_score = round(max(bull_groups, bear_groups) / max(1, active_domains), 2)
+        domain_diversity = round(active_domains / len(self.BASE_GROUP_WEIGHTS), 2)
+
+        # 6. Directional Recommendation & Expected Edge
+        min_signal = getattr(settings, "ATHENA_MIN_SIGNAL_SCORE", 0.55)
+        min_conf = getattr(settings, "MIN_RESEARCH_CONFIDENCE", 0.60)
+        min_agr = getattr(settings, "MIN_RESEARCH_AGREEMENT", 0.60)
+
+        expected_edge = round(composite_score * 0.045, 4)
+
+        if composite_score >= min_signal and calibrated_confidence >= min_conf and agreement_score >= min_agr:
+            recommended_action = "BUY"
+            synthesis = (
+                f"Correlation-Aware Aggregator confirms a BUY stance on {symbol} (Score: +{composite_score:.2f}, "
+                f"Confidence: {calibrated_confidence:.0%}, Agreement: {agreement_score:.0%}). "
+                f"Leading groups: Trend={trend_score:+.2f}, Momentum={feature_group_scores.get('momentum', 0):+.2f}."
+            )
+        elif composite_score <= -min_signal and calibrated_confidence >= min_conf and agreement_score >= min_agr:
             recommended_action = "SELL"
-            consensus_conf = round(total_bear_conf / bear_count, 2)
-            debate_synthesis = (
-                f"Multi-domain research consensus confirms a {recommended_action} stance ({bear_count}/{active_count} active domains aligned, Agreement: {agreement_score:.0%}). "
-                f"Domain Diversity: {domain_diversity:.0%}."
+            synthesis = (
+                f"Correlation-Aware Aggregator confirms a SELL stance on {symbol} (Score: {composite_score:.2f}, "
+                f"Confidence: {calibrated_confidence:.0%}, Agreement: {agreement_score:.0%})."
             )
         else:
             recommended_action = "HOLD"
-            consensus_conf = 0.50
-            debate_synthesis = (
-                f"Consensus inconclusive or below threshold ({bull_count} BUY, {bear_count} SELL, {neutral_count} HOLD). "
-                f"Agreement score {agreement_score:.0%} < threshold {min_agreement:.0%}. Recommending HOLD."
+            synthesis = (
+                f"Aggregator recommends HOLD on {symbol} (Score: {composite_score:+.2f} below threshold ±{min_signal:.2f} "
+                f"or Agreement: {agreement_score:.0%} < {min_agr:.0%}). Preserving capital."
             )
 
         report = DebateReport(
             symbol=symbol,
             timestamp=datetime.utcnow(),
             agreement_score=agreement_score,
+            composite_score=composite_score,
+            expected_edge=expected_edge,
+            conflict_penalty=round(conflict_penalty, 2),
+            feature_group_scores=feature_group_scores,
             conflicts=conflicts,
-            strongest_bullish_evidence=strongest_bullish[:5],
-            strongest_bearish_evidence=strongest_bearish[:5],
+            strongest_bullish_evidence=bullish_points[:5],
+            strongest_bearish_evidence=bearish_points[:5],
             weakest_evidence=weakest_evidence[:3],
-            missing_information=missing_info,
-            bull_count=bull_count,
-            bear_count=bear_count,
-            neutral_count=neutral_count,
-            unavailable_count=unavailable_count,
+            missing_information=[f"Unavailable data: {u}" for u in unavailable_domains],
+            bull_count=bull_groups,
+            bear_count=bear_groups,
+            neutral_count=neutral_groups,
+            unavailable_count=len(unavailable_domains),
             domain_diversity_score=domain_diversity,
-            debate_synthesis=debate_synthesis,
+            debate_synthesis=synthesis,
             recommended_action=recommended_action,
-            consensus_confidence=consensus_conf,
+            consensus_confidence=calibrated_confidence,
         )
 
         return report
+
+
+class DebateEngine:
+    """Interfacing debate synthesizer that delegates to SignalAggregator."""
+
+    def __init__(self):
+        self.aggregator = SignalAggregator()
+
+    def conduct_debate(
+        self,
+        symbol: str,
+        agent_summary: AgentRunSummary,
+        strategy_outputs: Dict[str, StrategyOutput],
+        regime_state: Optional[RegimeState] = None,
+    ) -> DebateReport:
+        return self.aggregator.aggregate_signals(
+            symbol=symbol,
+            agent_summary=agent_summary,
+            strategy_outputs=strategy_outputs,
+            regime_state=regime_state,
+        )
 
 
 debate_engine = DebateEngine()
