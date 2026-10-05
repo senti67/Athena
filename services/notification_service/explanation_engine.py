@@ -142,12 +142,10 @@ class ExplanationEngine:
                 risk_factors.append(f"Elevated realized volatility ({features.realized_volatility_20d * 100:.1f}%) widens stop range")
 
         if not supporting_factors:
-            supporting_factors.append("Multiple independent quantitative factors align positively")
-            supporting_factors.append("Reward-to-risk ratio satisfies institutional safety threshold")
+            supporting_factors.append("No individual indicator evidence recorded (feature snapshot unavailable)")
 
         if not risk_factors:
-            risk_factors.append("Macro headline risk or sector-wide selloff could invalidate setup")
-            risk_factors.append("Sudden volatility expansion may trigger stop-loss prematurely")
+            risk_factors.append("No specific risk flag from current indicators; maximum loss is bounded by the stop-loss")
 
         # Invalidation conditions
         if decision.stop_loss and decision.stop_loss > 0:
@@ -412,7 +410,7 @@ class ExplanationEngine:
             momentum_status=momentum_status,
             volume_status=volume_status,
             signal=verdict,
-            thesis_strength_score=75 if unrealized_pnl_pct >= 0 else 60,
+            thesis_strength_score=None,
             target_price=take_profit,
             stop_price=stop_loss,
             dist_to_target_pct=dist_tp,

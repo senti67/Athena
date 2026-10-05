@@ -150,23 +150,23 @@ class TelegramNotifier:
         """
         side_emoji = "🟢" if action.upper() == "BUY" else "🔴"
         now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        rr = ((take_profit - price) / max(price - stop_loss, 0.01)) if (stop_loss and take_profit and price > stop_loss) else 2.0
-
-        msg = (
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ ATHENA TRADE ALERT\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{side_emoji} {action.upper()} · {symbol.upper()}\n"
-            f"Confidence: {confidence * 100:.0f}%\n"
-            f"Quantity: {quantity:.0f} shares\n"
-            f"Price: ${price:,.2f}\n\n"
-            f"🎯 Target: ${take_profit:,.2f}\n" if take_profit else ""
-            f"🛑 Stop: ${stop_loss:,.2f}\n" if stop_loss else ""
-            f"⚖️ R:R: {rr:.2f} : 1\n\n"
-            f"Order ID:\n{order_id}\n\n"
-            f"⏱️ Generated:\n{now_utc}\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
-        )
+        lines = [
+            "━━━━━━━━━━━━━━━━━━━━",
+            "⚡ ATHENA ORDER SUBMITTED",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "",
+            f"{side_emoji} {action.upper()} · {symbol.upper()}",
+            f"Quantity: {quantity:.0f} shares",
+            f"Price: ${price:,.2f}",
+        ]
+        if take_profit:
+            lines.append(f"🎯 Target: ${take_profit:,.2f}")
+        if stop_loss:
+            lines.append(f"🛑 Stop: ${stop_loss:,.2f}")
+        if stop_loss and take_profit and price > stop_loss:
+            lines.append(f"⚖️ R:R: {(take_profit - price) / (price - stop_loss):.2f} : 1")
+        lines += ["", f"Order ID:\n{order_id}", "", f"⏱️ Generated:\n{now_utc}", "━━━━━━━━━━━━━━━━━━━━"]
+        msg = "\n".join(lines)
         fingerprint = f"ORDER_SUBMITTED:{symbol}:{order_id}"
         return await self.send_message(msg, fingerprint=fingerprint)
 
@@ -217,7 +217,7 @@ class TelegramNotifier:
             momentum_status="Strengthening" if rsi >= 50 else "Weakening",
             volume_status="Supportive",
             signal=verdict,
-            thesis_strength_score=75 if unrealized_pnl >= 0 else 60,
+            thesis_strength_score=None,
             target_price=take_profit,
             stop_price=stop_loss,
             dist_to_target_pct=((take_profit - current_price) / current_price * 100) if current_price > 0 else 0.0,

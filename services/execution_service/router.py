@@ -118,17 +118,8 @@ class ExecutionRouter:
         else:
             order_response = await self.paper_broker.submit_order(order_request)
 
-        # 5. Dispatch Telegram Trade Notification
-        await telegram_notifier.notify_order_submitted(
-            symbol=decision.symbol,
-            action=decision.action.value,
-            quantity=float(risk_check.max_approved_shares),
-            price=decision.current_price,
-            order_id=order_response.order_id,
-            stop_loss=decision.stop_loss,
-            take_profit=decision.take_profit,
-            confidence=decision.confidence,
-        )
+        # 5. Telegram trade notification is sent by the caller as a full TradeCard
+        #    (ExplanationEngine -> TelegramNotifier.send_trade_card); no legacy alert here.
 
         # 6. Process Fills and Update Portfolio
         for fill in order_response.fills:

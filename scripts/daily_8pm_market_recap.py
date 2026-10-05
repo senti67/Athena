@@ -31,6 +31,7 @@ from services.regime_service.detector import regime_detector
 # Key Macro & Sector Benchmarks
 MACRO_BENCHMARKS = [
     {"name": "S&P 500", "symbol": "SPY", "category": "US Equities"},
+    {"name": "Nasdaq 100", "symbol": "QQQ", "category": "US Equities"},
     {"name": "Bitcoin ETF", "symbol": "IBIT", "category": "Crypto"},
     {"name": "Physical Gold", "symbol": "GLD", "category": "Commodities"},
     {"name": "Physical Silver", "symbol": "SLV", "category": "Precious Metals"},
@@ -97,38 +98,46 @@ async def generate_and_send_8pm_digest():
     else:
         holdings_text = "• `100% Cash / Dry Powder` (Ready for tomorrow's morning scan)\n"
 
-    # 4. Construct Structured DailyReportCard
+    # 4. Construct DailyReportCard from MEASURED values only (None -> "N/A" in the message)
     today_date = datetime.now().strftime("%Y-%m-%d")
-    portfolio_exposure_pct = ((live_nav - live_cash) / live_nav * 100) if live_nav > 0 else 0.0
-    largest_pos = f"{open_positions[0].get('symbol', 'N/A')} · {((float(open_positions[0].get('market_value', 0))/live_nav)*100):.1f}%" if open_positions else "100% Cash"
+
+    def _f(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    # Daily P&L from Alpaca's own prior-close equity
+    last_equity = _f(acct.get("last_equity"))
+    daily_val = (live_nav - last_equity) if last_equity else None
+    daily_pct = (daily_val / last_equity * 100) if (daily_val is not None and last_equity) else None
+
+    # Exposure / largest position from real position market values
+    mvs = {p.get("symbol", "?"): abs(_f(p.get("market_value")) or 0.0) for p in open_positions}
+    exposure_pct = (sum(mvs.values()) / live_nav * 100) if (live_nav > 0) else None
+    if mvs and live_nav > 0:
+        big_sym = max(mvs, key=mvs.get)
+        largest_pos = f"{big_sym} · {mvs[big_sym] / live_nav * 100:.1f}%"
+    else:
+        largest_pos = "No open positions" if live_nav > 0 else None
+
+    def _regime_label(symbol):
+        for m in macro_summaries:
+            if m["symbol"] == symbol:
+                v = m["regime"]
+                icon = "🟢" if "BULL" in v else ("🔴" if "BEAR" in v else "🟡")
+                return f"{icon} {v.replace('_', ' ')}"
+        return None
 
     daily_card = DailyReportCard(
         date_str=today_date,
         portfolio_value=live_nav,
-        daily_pnl_pct=((live_nav - 100000.0) / 100000.0) * 100,
-        daily_pnl_val=live_nav - 100000.0,
-        total_pnl_pct=((live_nav - 100000.0) / 100000.0) * 100,
-        total_pnl_val=live_nav - 100000.0,
-        trades_count=len(open_positions),
-        wins_count=len([p for p in open_positions if float(p.get("unrealized_pl", 0)) > 0]),
-        losses_count=len([p for p in open_positions if float(p.get("unrealized_pl", 0)) < 0]),
-        win_rate_pct=100.0 if not open_positions else (len([p for p in open_positions if float(p.get("unrealized_pl", 0)) > 0]) / len(open_positions) * 100),
-        profit_factor=2.15,
-        avg_win=350.0,
-        avg_loss=-150.0,
-        max_drawdown_pct=0.85,
-        portfolio_exposure_pct=portfolio_exposure_pct,
+        daily_pnl_pct=daily_pct,
+        daily_pnl_val=daily_val,
+        portfolio_exposure_pct=exposure_pct,
         largest_position_str=largest_pos,
-        daily_risk_pct=0.75,
-        spy_regime="Bullish",
-        qqq_regime="Bullish",
-        vix_status="Moderate",
-        overall_market_bias="Risk-On",
-        trades_executed=4,
-        signals_rejected=18,
-        risk_vetoes=1,
-        most_successful_strategy="Trend Following",
-        weakest_strategy="Mean Reversion",
+        spy_regime=_regime_label("SPY"),
+        qqq_regime=_regime_label("QQQ"),
         timestamp=datetime.utcnow(),
     )
 

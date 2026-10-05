@@ -112,7 +112,7 @@ class PositionUpdateCard(BaseModel):
     momentum_status: str = "Neutral"
     volume_status: str = "Supportive"
     signal: str = "HOLD"
-    thesis_strength_score: Optional[int] = 70
+    thesis_strength_score: Optional[int] = None
     target_price: Optional[float] = None
     stop_price: Optional[float] = None
     dist_to_target_pct: Optional[float] = None
@@ -145,32 +145,33 @@ class NoTradeCard(BaseModel):
 
 class DailyReportCard(BaseModel):
     """
-    Data contract for the comprehensive daily performance and market intelligence summary.
+    Data contract for the daily performance summary.
+    Every metric is Optional: None means "not measured" and is rendered as N/A (never defaulted).
     """
     date_str: str
-    portfolio_value: float
-    daily_pnl_pct: float
-    daily_pnl_val: float
+    portfolio_value: Optional[float] = None
+    daily_pnl_pct: Optional[float] = None
+    daily_pnl_val: Optional[float] = None
     total_pnl_pct: Optional[float] = None
     total_pnl_val: Optional[float] = None
-    trades_count: int = 0
-    wins_count: int = 0
-    losses_count: int = 0
-    win_rate_pct: float = 0.0
-    profit_factor: float = 0.0
-    avg_win: float = 0.0
-    avg_loss: float = 0.0
-    max_drawdown_pct: float = 0.0
-    portfolio_exposure_pct: float = 0.0
+    trades_count: Optional[int] = None
+    wins_count: Optional[int] = None
+    losses_count: Optional[int] = None
+    win_rate_pct: Optional[float] = None
+    profit_factor: Optional[float] = None
+    avg_win: Optional[float] = None
+    avg_loss: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+    portfolio_exposure_pct: Optional[float] = None
     largest_position_str: Optional[str] = None
     daily_risk_pct: Optional[float] = None
-    spy_regime: Optional[str] = "Bullish"
-    qqq_regime: Optional[str] = "Bullish"
-    vix_status: Optional[str] = "Moderate"
-    overall_market_bias: Optional[str] = "Risk-On"
-    trades_executed: int = 0
-    signals_rejected: int = 0
-    risk_vetoes: int = 0
+    spy_regime: Optional[str] = None
+    qqq_regime: Optional[str] = None
+    vix_status: Optional[str] = None
+    overall_market_bias: Optional[str] = None
+    trades_executed: Optional[int] = None
+    signals_rejected: Optional[int] = None
+    risk_vetoes: Optional[int] = None
     most_successful_strategy: Optional[str] = None
     weakest_strategy: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)

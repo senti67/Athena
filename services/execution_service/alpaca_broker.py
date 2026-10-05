@@ -114,39 +114,47 @@ class AlpacaBrokerAdapter:
                 "account_blocked": False,
             }
 
+        # With real credentials, NEVER substitute a simulated account: an unreachable broker
+        # must surface as an error so no trade is sized against fabricated equity/buying power.
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 res = await client.get(f"{self.base_url}/v2/account", headers=self.headers)
-                if res.status_code == 200:
-                    return res.json()
-                else:
-                    logger.error(f"Alpaca get_account failed: {res.status_code} {res.text}")
-                    raise BrokerConnectionException(f"Alpaca API error: {res.text}")
             except Exception as e:
-                logger.warning(f"Error connecting to Alpaca Paper API: {e}. Using fallback simulation.")
-                return {
-                    "id": "alpaca-paper-fallback",
-                    "status": "ACTIVE",
-                    "currency": "USD",
-                    "equity": "1000000.00",
-                    "cash": "1000000.00",
-                    "buying_power": "4000000.00",
-                }
+                logger.error(f"Cannot reach Alpaca Paper API for account: {e}")
+                raise BrokerConnectionException(f"Alpaca unreachable (account): {e}") from e
+            if res.status_code != 200:
+                logger.error(f"Alpaca get_account failed: {res.status_code} {res.text}")
+                raise BrokerConnectionException(f"Alpaca API error: {res.status_code}")
+            return res.json()
+
+    async def is_market_open(self) -> Optional[bool]:
+        """Returns Alpaca's market-clock `is_open`, or None if it cannot be determined."""
+        if not self._has_valid_credentials():
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(f"{self.base_url}/v2/clock", headers=self.headers)
+            if res.status_code == 200:
+                return bool(res.json().get("is_open"))
+        except Exception as e:
+            logger.warning(f"Could not read Alpaca market clock: {e}")
+        return None
 
     async def get_positions(self) -> List[Dict[str, Any]]:
         """Fetches all currently open positions from Alpaca Paper API."""
         if not self._has_valid_credentials():
             return []
 
+        # Failure must raise: returning [] would make the bot believe the portfolio is empty.
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 res = await client.get(f"{self.base_url}/v2/positions", headers=self.headers)
-                if res.status_code == 200:
-                    return res.json()
-                return []
             except Exception as e:
-                logger.warning(f"Error fetching Alpaca positions: {e}")
-                return []
+                logger.error(f"Cannot reach Alpaca Paper API for positions: {e}")
+                raise BrokerConnectionException(f"Alpaca unreachable (positions): {e}") from e
+            if res.status_code != 200:
+                raise BrokerConnectionException(f"Alpaca positions error: {res.status_code}")
+            return res.json()
 
     async def get_open_orders(self) -> List[Dict[str, Any]]:
         """Fetches all pending / open / queued orders from Alpaca Paper API."""
@@ -156,12 +164,12 @@ class AlpacaBrokerAdapter:
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 res = await client.get(f"{self.base_url}/v2/orders?status=open", headers=self.headers)
-                if res.status_code == 200:
-                    return res.json()
-                return []
             except Exception as e:
-                logger.warning(f"Error fetching open orders from Alpaca: {e}")
-                return []
+                logger.error(f"Cannot reach Alpaca Paper API for open orders: {e}")
+                raise BrokerConnectionException(f"Alpaca unreachable (orders): {e}") from e
+            if res.status_code != 200:
+                raise BrokerConnectionException(f"Alpaca orders error: {res.status_code}")
+            return res.json()
 
     async def cancel_all_orders(self) -> bool:
         """Cancels all pending open orders on Alpaca."""
@@ -337,3 +345,4 @@ class AlpacaBrokerAdapter:
 
 
 alpaca_broker = AlpacaBrokerAdapter()
+AlpacaBroker = AlpacaBrokerAdapter

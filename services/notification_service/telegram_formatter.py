@@ -27,6 +27,16 @@ def render_progress_bar(score: int, max_score: int = 100, length: int = 10) -> s
     return f"{bar} {clamped_score}/{max_score}"
 
 
+def _status_emoji(label: str) -> str:
+    """Colour a status word by its meaning (never a default green)."""
+    l = (label or "").lower()
+    if any(w in l for w in ("strengthen", "supportive", "buy", "bull")):
+        return "🟢"
+    if any(w in l for w in ("weaken", "drying", "sell", "bear", "close")):
+        return "🔴"
+    return "🟡"
+
+
 def escape_markdown(text: str) -> str:
     """
     Sanitizes dynamic text for Telegram Markdown formatting.
@@ -86,7 +96,7 @@ class TelegramFormatter:
             evidence_lines.append(f"{s.strategy_name:<20} {s_emoji} {sign}{s.score:.2f}")
 
         if not evidence_lines:
-            evidence_lines.append("Multi-Factor Ensemble     🟢 +0.70")
+            evidence_lines.append("No strategy contribution recorded")
         evidence_block = "\n".join(evidence_lines)
 
         # Progress bar
@@ -210,10 +220,10 @@ class TelegramFormatter:
             f"{SECTION_DIVIDER}\n\n"
             f"Original Thesis:\n{card.original_thesis}\n\n"
             f"Current Regime:\n{reg_emoji} {card.current_regime.upper()}\n\n"
-            f"Momentum:\n🟢 {card.momentum_status}\n\n"
-            f"Volume:\n🟢 {card.volume_status}\n\n"
-            f"Signal:\n🟢 {card.signal.upper()}\n\n"
-            f"Thesis Strength:\n{card.thesis_strength_score}/100\n\n"
+            f"Momentum:\n{_status_emoji(card.momentum_status)} {card.momentum_status}\n\n"
+            f"Volume:\n{_status_emoji(card.volume_status)} {card.volume_status}\n\n"
+            f"Signal:\n{_status_emoji(card.signal)} {card.signal.upper()}\n\n"
+            f"Thesis Strength:\n{str(card.thesis_strength_score) + '/100' if card.thesis_strength_score is not None else 'N/A'}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"🎯 LEVELS\n"
             f"{SECTION_DIVIDER}\n\n"
@@ -278,15 +288,38 @@ class TelegramFormatter:
         )
         return msg
 
+    @staticmethod
+    def _num(value, fmt: str = "{:,.2f}", prefix: str = "", suffix: str = "") -> str:
+        """Format a number, or 'N/A' when it was not measured."""
+        if value is None:
+            return "N/A"
+        return f"{prefix}{fmt.format(value)}{suffix}"
+
+    @staticmethod
+    def _signed_emoji(value) -> str:
+        if value is None:
+            return "⚪"
+        return "🟢" if value >= 0 else "🔴"
+
     @classmethod
     def format_daily_report(cls, card: DailyReportCard) -> str:
         """
-        Formats a DailyReportCard into the comprehensive 8:00 PM summary note.
+        Formats a DailyReportCard into the daily summary note.
+        Any metric that is None is shown as N/A; nothing is defaulted or estimated.
         """
-        daily_pnl_emoji = "🟢" if card.daily_pnl_val >= 0 else "🔴"
-        daily_sign = "+" if card.daily_pnl_val >= 0 else ""
-        total_pnl_emoji = "🟢" if (card.total_pnl_pct or 0) >= 0 else "🔴"
-        total_sign = "+" if (card.total_pnl_pct or 0) >= 0 else ""
+        n = cls._num
+        d_emoji = cls._signed_emoji(card.daily_pnl_val)
+        t_emoji = cls._signed_emoji(card.total_pnl_pct)
+
+        if card.daily_pnl_pct is None or card.daily_pnl_val is None:
+            daily_line = "N/A"
+        else:
+            sg = "+" if card.daily_pnl_val >= 0 else "-"
+            daily_line = f"{d_emoji} {card.daily_pnl_pct:+.2f}%  ({sg}${abs(card.daily_pnl_val):,.2f})"
+        total_line = f"{t_emoji} {card.total_pnl_pct:+.2f}%" if card.total_pnl_pct is not None else "N/A"
+
+        avg_win = n(card.avg_win, prefix="+$") if card.avg_win is not None else "N/A"
+        avg_loss = n(abs(card.avg_loss), prefix="-$") if card.avg_loss is not None else "N/A"
 
         ts_str = card.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -295,41 +328,41 @@ class TelegramFormatter:
             f"🧠 ATHENA DAILY REPORT\n"
             f"{SECTION_DIVIDER}\n\n"
             f"📅 {card.date_str}\n\n"
-            f"Portfolio:\n${card.portfolio_value:,.2f}\n\n"
-            f"Daily P&L:\n{daily_pnl_emoji} {daily_sign}{card.daily_pnl_pct:.2f}%  ({daily_sign}${card.daily_pnl_val:,.2f})\n\n"
-            f"Total P&L:\n{total_pnl_emoji} {total_sign}{card.total_pnl_pct or 0.0:.2f}%\n\n"
+            f"Portfolio:\n{n(card.portfolio_value, prefix='$')}\n\n"
+            f"Daily P&L:\n{daily_line}\n\n"
+            f"Total P&L:\n{total_line}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"📊 TRADING ACTIVITY\n"
             f"{SECTION_DIVIDER}\n\n"
-            f"Trades:\n{card.trades_count}\n\n"
-            f"Wins:\n{card.wins_count}\n\n"
-            f"Losses:\n{card.losses_count}\n\n"
-            f"Win Rate:\n{card.win_rate_pct:.1f}%\n\n"
-            f"Profit Factor:\n{card.profit_factor:.2f}\n\n"
-            f"Average Win:\n+${card.avg_win:,.2f}\n\n"
-            f"Average Loss:\n-${abs(card.avg_loss):,.2f}\n\n"
+            f"Trades:\n{n(card.trades_count, '{:d}')}\n\n"
+            f"Wins:\n{n(card.wins_count, '{:d}')}\n\n"
+            f"Losses:\n{n(card.losses_count, '{:d}')}\n\n"
+            f"Win Rate:\n{n(card.win_rate_pct, '{:.1f}', suffix='%')}\n\n"
+            f"Profit Factor:\n{n(card.profit_factor)}\n\n"
+            f"Average Win:\n{avg_win}\n\n"
+            f"Average Loss:\n{avg_loss}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"📈 RISK\n"
             f"{SECTION_DIVIDER}\n\n"
-            f"Max Drawdown:\n{card.max_drawdown_pct:.2f}%\n\n"
-            f"Portfolio Exposure:\n{card.portfolio_exposure_pct:.1f}%\n\n"
+            f"Max Drawdown:\n{n(card.max_drawdown_pct, suffix='%')}\n\n"
+            f"Portfolio Exposure:\n{n(card.portfolio_exposure_pct, '{:.1f}', suffix='%')}\n\n"
             f"Largest Position:\n{card.largest_position_str or 'N/A'}\n\n"
-            f"Daily Risk:\n{card.daily_risk_pct or 0.0:.2f}%\n\n"
+            f"Daily Risk:\n{n(card.daily_risk_pct, suffix='%')}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"🧠 MARKET REGIME\n"
             f"{SECTION_DIVIDER}\n\n"
-            f"SPY:\n🟢 {card.spy_regime or 'Bullish'}\n\n"
-            f"QQQ:\n🟢 {card.qqq_regime or 'Bullish'}\n\n"
-            f"VIX:\n🟡 {card.vix_status or 'Moderate'}\n\n"
-            f"Overall:\n🟢 {card.overall_market_bias or 'Risk-On'}\n\n"
+            f"SPY:\n{card.spy_regime or 'N/A'}\n\n"
+            f"QQQ:\n{card.qqq_regime or 'N/A'}\n\n"
+            f"VIX:\n{card.vix_status or 'N/A'}\n\n"
+            f"Overall:\n{card.overall_market_bias or 'N/A'}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"🤖 ATHENA\n"
             f"{SECTION_DIVIDER}\n\n"
-            f"Trades Executed:\n{card.trades_executed}\n\n"
-            f"Signals Rejected:\n{card.signals_rejected}\n\n"
-            f"Risk Vetoes:\n{card.risk_vetoes}\n\n"
-            f"Most Successful Strategy:\n{card.most_successful_strategy or 'Trend Following'}\n\n"
-            f"Weakest Strategy:\n{card.weakest_strategy or 'Mean Reversion'}\n\n"
+            f"Trades Executed:\n{n(card.trades_executed, '{:d}')}\n\n"
+            f"Signals Rejected:\n{n(card.signals_rejected, '{:d}')}\n\n"
+            f"Risk Vetoes:\n{n(card.risk_vetoes, '{:d}')}\n\n"
+            f"Most Successful Strategy:\n{card.most_successful_strategy or 'N/A'}\n\n"
+            f"Weakest Strategy:\n{card.weakest_strategy or 'N/A'}\n\n"
             f"{SECTION_DIVIDER}\n"
             f"⏱️ Generated:\n{ts_str}\n"
             f"{SECTION_DIVIDER}"
